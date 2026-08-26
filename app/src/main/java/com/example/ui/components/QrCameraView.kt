@@ -45,12 +45,37 @@ fun QrCameraView(
     }
     
     if (hasCameraPermission) {
+        var isDisposed by remember { mutableStateOf(false) }
+        val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+        val executor = remember { Executors.newSingleThreadExecutor() }
+        val scanner = remember {
+            BarcodeScanning.getClient(
+                BarcodeScannerOptions.Builder()
+                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                    .build()
+            )
+        }
+
+        DisposableEffect(lifecycleOwner) {
+            onDispose {
+                isDisposed = true
+                try {
+                    val cameraProvider = cameraProviderFuture.get()
+                    cameraProvider.unbindAll()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                executor.shutdown()
+                scanner.close()
+            }
+        }
+
         AndroidView(
             factory = { ctx ->
                 val previewView = PreviewView(ctx)
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 
                 cameraProviderFuture.addListener({
+                    if (isDisposed) return@addListener
                     try {
                         val cameraProvider = cameraProviderFuture.get()
                         
@@ -62,19 +87,17 @@ fun QrCameraView(
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                             
-                        val scanner = BarcodeScanning.getClient(
-                            BarcodeScannerOptions.Builder()
-                                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                                .build()
-                        )
-                        
-                        val executor = Executors.newSingleThreadExecutor()
                         imageAnalysis.setAnalyzer(executor) { imageProxy ->
+                            if (isDisposed) {
+                                imageProxy.close()
+                                return@setAnalyzer
+                            }
                             val mediaImage = imageProxy.image
                             if (mediaImage != null) {
                                 val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                                 scanner.process(image)
                                     .addOnSuccessListener { barcodes ->
+                                        if (isDisposed) return@addOnSuccessListener
                                         for (barcode in barcodes) {
                                             barcode.rawValue?.let { onQrScanned(it) }
                                         }
