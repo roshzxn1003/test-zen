@@ -13,8 +13,10 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.UUID
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
+import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -104,12 +106,28 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
         userProfileRepository = com.example.data.repository.UserProfileRepository(database.userProfileDao())
         
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             authService.restoreSession()
             authService.currentUser.collect { user ->
                 if (user != null) {
                     userProfileRepository.syncProfile(user.id)
-                    syncEngine.syncAll()
+                }
+            }
+        }
+
+        // Automatic background cloud synchronization loop (Immediate + Periodic every 12s)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                syncEngine.syncAll(currentUserId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            while (isActive) {
+                delay(12000)
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    // background sync tick
                 }
             }
         }
@@ -200,12 +218,12 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         if (id != null) {
             repository.getMembersByFamilyId(id)
         } else {
-            flow {
-                val firstFam = repository.getFirstFamily()
+            repository.getAllFamilies().flatMapLatest { families ->
+                val firstFam = families.firstOrNull()
                 if (firstFam != null) {
-                    emitAll(repository.getMembersByFamilyId(firstFam.id))
+                    repository.getMembersByFamilyId(firstFam.id)
                 } else {
-                    emit(emptyList())
+                    kotlinx.coroutines.flow.flowOf(emptyList())
                 }
             }
         }
@@ -301,8 +319,9 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
             val matchesType = filter.type == null || tx.type == filter.type
             val matchesCat = filter.category == null || tx.category == filter.category
+            val matchesMember = filter.member == null || tx.createdByUserId == filter.member
 
-            matchesSearch && matchesType && matchesCat
+            matchesSearch && matchesType && matchesCat && matchesMember
         }
 
         CashFlowUiState(
@@ -315,6 +334,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             searchQuery = filter.search,
             selectedFilterType = filter.type,
             selectedFilterCategory = filter.category,
+            selectedFilterMember = filter.member,
             isVoiceDialogShowing = voice.voiceShow,
             isVoiceProcessing = voice.voiceProc,
             parsedVoiceExpense = voice.voiceParsed,
@@ -439,8 +459,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun syncNow() {
-        viewModelScope.launch {
-            syncEngine.syncTransactions()
+        viewModelScope.launch(Dispatchers.IO) {
+            syncEngine.syncAll(currentUserId)
         }
     }
 
@@ -488,9 +508,18 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     createdByUserId = creator,
                     dateMillis = dateMillis,
                     upiId = upiId,
-                    upiTransactionId = upiTransactionId
+                    upiTransactionId = upiTransactionId,
+                    syncStatus = "PENDING_CREATE"
                 )
             )
+
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -522,13 +551,28 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     fun updateTransaction(transaction: TransactionEntity) {
         viewModelScope.launch {
-            repository.updateTransaction(transaction)
+            repository.updateTransaction(transaction.copy(syncStatus = "PENDING_UPDATE"))
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun deleteTransaction(transaction: TransactionEntity) {
         viewModelScope.launch {
-            repository.deleteTransaction(transaction)
+            val toDelete = transaction.copy(syncStatus = "PENDING_DELETE", isDeleted = true)
+            repository.updateTransaction(toDelete)
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -571,21 +615,43 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     periodType = periodType,
                     customPeriodName = customPeriodName,
                     financeScope = _currentFinanceScope.value,
-                    familyId = fId
+                    familyId = fId,
+                    syncStatus = "PENDING_CREATE"
                 )
             )
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun saveBudgetEntity(budget: BudgetEntity) {
         viewModelScope.launch {
-            repository.saveBudget(budget)
+            repository.saveBudget(budget.copy(syncStatus = "PENDING_UPDATE"))
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun deleteBudget(budget: BudgetEntity) {
         viewModelScope.launch {
-            repository.deleteBudget(budget)
+            repository.deleteBudget(budget.copy(syncStatus = "PENDING_DELETE", isDeleted = true))
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -605,28 +671,60 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     targetAmount = targetAmount,
                     currentAmount = currentAmount,
                     financeScope = _currentFinanceScope.value,
-                    familyId = fId
+                    familyId = fId,
+                    syncStatus = "PENDING_CREATE"
                 )
             )
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun saveSavingsGoalEntity(goal: SavingsGoalEntity) {
         viewModelScope.launch {
-            repository.saveSavingsGoal(goal)
+            repository.saveSavingsGoal(goal.copy(syncStatus = "PENDING_UPDATE"))
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun deleteSavingsGoal(goal: SavingsGoalEntity) {
         viewModelScope.launch {
-            repository.deleteSavingsGoal(goal)
+            repository.deleteSavingsGoal(goal.copy(syncStatus = "PENDING_DELETE", isDeleted = true))
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun updateGoalDeposit(goal: SavingsGoalEntity, addedAmount: Double) {
         viewModelScope.launch {
-            val updated = goal.copy(currentAmount = goal.currentAmount + addedAmount)
+            val updated = goal.copy(
+                currentAmount = goal.currentAmount + addedAmount,
+                syncStatus = "PENDING_UPDATE"
+            )
             repository.saveSavingsGoal(updated)
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -710,7 +808,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 name = name,
                 createdByUserId = currentUserId,
                 createdAt = System.currentTimeMillis(),
-                inviteCode = inviteCode
+                inviteCode = inviteCode,
+                syncStatus = "PENDING_CREATE"
             )
             repository.insertFamily(family)
             
@@ -718,14 +817,23 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 id = UUID.randomUUID().toString(),
                 familyId = newFamilyId,
                 userId = currentUserId,
-                name = currentUserName,
+                name = currentUserName.ifBlank { "You" },
                 role = FamilyRole.ADMIN,
-                joinedAt = System.currentTimeMillis()
+                joinedAt = System.currentTimeMillis(),
+                syncStatus = "PENDING_CREATE"
             )
             repository.insertMember(member)
             
             setActiveFamily(newFamilyId)
             setFinanceScope(FinanceScope.FAMILY)
+
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -738,9 +846,33 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 userId = UUID.randomUUID().toString(),
                 name = name,
                 role = role,
-                joinedAt = System.currentTimeMillis()
+                joinedAt = System.currentTimeMillis(),
+                syncStatus = "PENDING_CREATE"
             )
             repository.insertMember(member)
+
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun deleteFamilyMember(member: FamilyMemberEntity) {
+        viewModelScope.launch {
+            val toDelete = member.copy(syncStatus = "PENDING_DELETE", isDeleted = true)
+            repository.updateMember(toDelete)
+
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -825,35 +957,30 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 repository.insertFamily(newConnectedFamily)
                 family = newConnectedFamily
             }
-
-            if (family != null) {
-                val targetFamilyId = family.id
-                val existing = repository.getMemberByFamilyAndUser(targetFamilyId, currentUserId)
-                if (existing == null) {
-                    val member = FamilyMemberEntity(
-                        id = UUID.randomUUID().toString(),
-                        familyId = targetFamilyId,
-                        userId = currentUserId,
-                        name = currentUserName.ifBlank { "Family Member" },
-                        role = FamilyRole.MEMBER,
-                        joinedAt = System.currentTimeMillis()
-                    )
-                    repository.insertMember(member)
-                }
-                setActiveFamily(targetFamilyId)
-                setFinanceScope(FinanceScope.FAMILY)
-                // Trigger background synchronization immediately
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        syncEngine.syncAll(currentUserId)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-                onResult(true, "Successfully linked and synchronized with ${family.name}!")
-            } else {
-                onResult(false, "Family Vault not found with ID: $inviteCode")
+            val targetFamilyId = family.id
+            val existing = repository.getMemberByFamilyAndUser(targetFamilyId, currentUserId)
+            if (existing == null) {
+                val member = FamilyMemberEntity(
+                    id = UUID.randomUUID().toString(),
+                    familyId = targetFamilyId,
+                    userId = currentUserId,
+                    name = currentUserName.ifBlank { "Family Member" },
+                    role = FamilyRole.MEMBER,
+                    joinedAt = System.currentTimeMillis()
+                )
+                repository.insertMember(member)
             }
+            setActiveFamily(targetFamilyId)
+            setFinanceScope(FinanceScope.FAMILY)
+            // Trigger background synchronization immediately
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    syncEngine.syncAll(currentUserId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            onResult(true, "Successfully linked and synchronized with ${family.name}!")
         }
     }
 

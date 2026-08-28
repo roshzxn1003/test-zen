@@ -142,7 +142,7 @@ fun UPIPaySheet(
                         focusedTextColor = SlateDarkTextPrimary,
                         unfocusedTextColor = SlateDarkTextPrimary
                     ),
-                    modifier = Modifier.fillMaxWidth().height(56.dp).testTag("upi_amount_field"),
+                    modifier = Modifier.fillMaxWidth().testTag("upi_amount_field"),
                     singleLine = true
                 )
 
@@ -163,7 +163,7 @@ fun UPIPaySheet(
                         focusedTextColor = SlateDarkTextPrimary,
                         unfocusedTextColor = SlateDarkTextPrimary
                     ),
-                    modifier = Modifier.fillMaxWidth().height(56.dp).testTag("upi_purpose_field"),
+                    modifier = Modifier.fillMaxWidth().testTag("upi_purpose_field"),
                     singleLine = true
                 )
 
@@ -190,7 +190,7 @@ fun UPIPaySheet(
                         focusedTextColor = SlateDarkTextPrimary,
                         unfocusedTextColor = SlateDarkTextPrimary
                     ),
-                    modifier = Modifier.fillMaxWidth().height(64.dp).testTag("upi_vpa_field"),
+                    modifier = Modifier.fillMaxWidth().testTag("upi_vpa_field"),
                     singleLine = true
                 )
 

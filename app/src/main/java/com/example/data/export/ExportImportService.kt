@@ -790,37 +790,54 @@ object ExportImportService {
     }
 
     fun shareFile(context: Context, exportResult: ExportResult) {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = when (exportResult.file.extension.lowercase()) {
-                "pdf" -> "application/pdf"
-                "csv" -> "text/csv"
-                "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                "json" -> "application/json"
-                else -> "*/*"
-            }
-            putExtra(Intent.EXTRA_STREAM, exportResult.contentUri)
-            putExtra(Intent.EXTRA_SUBJECT, "Zenith Export: ${exportResult.fileName}")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(Intent.createChooser(intent, "Share Zenith Financial Data"))
-    }
-
-    fun openFile(context: Context, exportResult: ExportResult) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(
-                exportResult.contentUri,
-                when (exportResult.file.extension.lowercase()) {
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = when (exportResult.file.extension.lowercase()) {
                     "pdf" -> "application/pdf"
                     "csv" -> "text/csv"
                     "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     "json" -> "application/json"
                     else -> "*/*"
                 }
-            )
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(Intent.EXTRA_STREAM, exportResult.contentUri)
+                putExtra(Intent.EXTRA_SUBJECT, "Zenith Export: ${exportResult.fileName}")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(intent, "Share Zenith Financial Data").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            android.widget.Toast.makeText(context, "Could not open share dialog: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
         }
-        context.startActivity(Intent.createChooser(intent, "Open with..."))
+    }
+
+    fun openFile(context: Context, exportResult: ExportResult) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(
+                    exportResult.contentUri,
+                    when (exportResult.file.extension.lowercase()) {
+                        "pdf" -> "application/pdf"
+                        "csv" -> "text/csv"
+                        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        "json" -> "application/json"
+                        else -> "*/*"
+                    }
+                )
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(intent, "Open with...").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            android.widget.Toast.makeText(context, "No app found to open this file.", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun parseCsvLine(line: String): List<String> {

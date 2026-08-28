@@ -10,7 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.models.FamilyMemberEntity
 import com.example.data.models.TransactionEntity
 import com.example.data.models.TransactionType
+import com.example.ui.components.CleanCard
 import com.example.ui.components.GlassCard
 import com.example.ui.components.TransactionDetailModal
 import com.example.ui.components.TransactionItemCard
@@ -206,7 +207,7 @@ fun TransactionsScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // --- 6. TRANSACTION LIST ---
+        // --- 6. TRANSACTION LIST (Grouped by Date) ---
         if (state.transactions.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -214,16 +215,16 @@ fun TransactionsScreen(
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                GlassCard(
+                CleanCard(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    backgroundColor = GlassCardBg
+                    backgroundColor = SlateDarkSurface.copy(alpha = 0.8f)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth().padding(16.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ReceiptLong,
+                            imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
                             contentDescription = null,
                             modifier = Modifier.size(44.dp),
                             tint = SlateDarkTextMuted
@@ -240,31 +241,76 @@ fun TransactionsScreen(
                             fontSize = 12.sp,
                             color = SlateDarkTextSecondary
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
                         Button(
                             onClick = onOpenAddTransaction,
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                         ) {
-                            Text("Add Transaction", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Add Transaction", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
             }
         } else {
+            val groupedTransactions = remember(state.transactions) {
+                state.transactions.groupBy { tx ->
+                    val date = Date(tx.dateMillis)
+                    val now = Calendar.getInstance()
+                    val txCal = Calendar.getInstance().apply { time = date }
+                    when {
+                        now.get(Calendar.YEAR) == txCal.get(Calendar.YEAR) &&
+                                now.get(Calendar.DAY_OF_YEAR) == txCal.get(Calendar.DAY_OF_YEAR) -> "Today"
+                        now.get(Calendar.YEAR) == txCal.get(Calendar.YEAR) &&
+                                now.get(Calendar.DAY_OF_YEAR) - txCal.get(Calendar.DAY_OF_YEAR) == 1 -> "Yesterday"
+                        else -> java.text.SimpleDateFormat("EEEE, dd MMMM yyyy", Locale.getDefault()).format(date)
+                    }
+                }
+            }
+
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 140.dp)
             ) {
-                items(state.transactions, key = { "tx_${it.id}" }) { tx ->
-                    val memberName = familyMembers.firstOrNull { it.userId == tx.createdByUserId }?.name
-                    TransactionItemCard(
-                        transaction = tx,
-                        currencySymbol = state.currencySymbol,
-                        creatorName = memberName,
-                        onClick = { selectedTransactionForDetails = it },
-                        onLongClick = { selectedTransactionForDetails = it },
-                        modifier = Modifier.animateItem()
-                    )
+                groupedTransactions.forEach { (dateHeader, txList) ->
+                    item(key = "header_$dateHeader") {
+                        val dayExpense = txList.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 14.dp, bottom = 6.dp, start = 4.dp, end = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = dateHeader,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SlateDarkTextSecondary,
+                                letterSpacing = 0.5.sp
+                            )
+                            if (dayExpense > 0) {
+                                Text(
+                                    text = "Spent: -${state.currencySymbol}${String.format(Locale.US, "%,.0f", dayExpense)}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = PastelRose
+                                )
+                            }
+                        }
+                    }
+
+                    items(txList, key = { "tx_${it.id}" }) { tx ->
+                        val memberName = familyMembers.firstOrNull { it.userId == tx.createdByUserId }?.name
+                        TransactionItemCard(
+                            transaction = tx,
+                            currencySymbol = state.currencySymbol,
+                            creatorName = memberName,
+                            onClick = { selectedTransactionForDetails = it },
+                            onLongClick = { selectedTransactionForDetails = it },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
                 }
             }
         }

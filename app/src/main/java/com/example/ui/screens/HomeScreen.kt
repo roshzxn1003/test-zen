@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -29,6 +31,7 @@ import com.example.data.models.FamilyMemberEntity
 import com.example.data.models.FinanceScope
 import com.example.data.models.TransactionEntity
 import com.example.data.models.TransactionType
+import com.example.ui.components.CleanCard
 import com.example.ui.components.GlassCard
 import com.example.ui.components.TransactionDetailModal
 import com.example.ui.components.TransactionItemCard
@@ -106,25 +109,25 @@ fun HomeScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ZenithLogo(size = 36.dp)
+                    ZenithLogo(size = 38.dp)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
                             text = "ZENITH",
-                            fontSize = 18.sp,
+                            fontSize = 17.sp,
                             fontWeight = FontWeight.Black,
-                            letterSpacing = 1.5.sp,
+                            letterSpacing = 1.6.sp,
                             color = SlateDarkTextPrimary
                         )
                         Text(
                             text = if (isFamily) "Family Ledger Active" else "Good day, $currentUserName",
                             fontSize = 12.sp,
-                            color = if (isFamily) GoldAccent else SlateDarkTextSecondary,
+                            color = if (isFamily) PastelCyan else SlateDarkTextSecondary,
                             fontWeight = if (isFamily) FontWeight.SemiBold else FontWeight.Normal
                         )
                     }
@@ -134,13 +137,13 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Repositioned Voice Entry in Header
+                    // Clean Voice Entry Pill in Header
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF6366F1).copy(alpha = 0.18f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF6366F1).copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(14.dp),
+                        color = PastelIndigoContainer,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, PastelIndigo.copy(alpha = 0.35f)),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .clickable { onOpenVoiceAssistant() }
                             .testTag("btn_voice_entry_header")
                     ) {
@@ -151,15 +154,15 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Default.Mic,
                                 contentDescription = "Voice Entry",
-                                tint = Color(0xFFA5B4FC),
-                                modifier = Modifier.size(17.dp)
+                                tint = PastelIndigo,
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "Voice",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFE0E7FF),
+                                color = SlateDarkTextPrimary,
                                 maxLines = 1
                             )
                         }
@@ -170,7 +173,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(GlassCardBg)
+                            .background(SlateDarkSurfaceVariant)
                             .border(1.dp, GlassBorderColor, CircleShape)
                             .clickable { onNavigateToProfile() },
                         contentAlignment = Alignment.Center
@@ -178,8 +181,8 @@ fun HomeScreen(
                         Icon(
                             imageVector = if (isFamily) Icons.Default.Group else Icons.Default.Person,
                             contentDescription = "Profile",
-                            tint = if (isFamily) GoldAccent else EmeraldDarkPrimary,
-                            modifier = Modifier.size(20.dp)
+                            tint = if (isFamily) PastelCyan else PastelIndigo,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -192,11 +195,11 @@ fun HomeScreen(
         item {
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = GlassCardBg,
+                color = SlateDarkSurface.copy(alpha = 0.9f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(46.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -220,7 +223,7 @@ fun HomeScreen(
                                 Icons.Default.Person,
                                 contentDescription = null,
                                 tint = if (isPersonal) Color.White else SlateDarkTextSecondary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
@@ -247,7 +250,7 @@ fun HomeScreen(
                                 Icons.Default.Group,
                                 contentDescription = null,
                                 tint = if (isFamily) Color.Black else SlateDarkTextSecondary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
@@ -288,7 +291,7 @@ fun HomeScreen(
                             text = "+ Manage",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = GoldAccent
+                            color = PastelCyan
                         )
                     }
                 }
@@ -321,10 +324,10 @@ fun HomeScreen(
             }
         }
 
-        // --- 4. MAIN BALANCE GLASS CARD ---
+        // --- 4. MAIN BALANCE CLEAN HERO CARD ---
         item {
             Card(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(26.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -334,10 +337,10 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            brush = if (isFamily) Brush.linearGradient(listOf(Color(0xFF083344), Color(0xFF0F172A), Color(0xFF070B14))) else HeroCardGradient,
-                            shape = RoundedCornerShape(24.dp)
+                            brush = if (isFamily) FamilyHeroCardGradient else HeroCardGradient,
+                            shape = RoundedCornerShape(26.dp)
                         )
-                        .border(1.dp, if (isFamily) GoldAccent.copy(alpha = 0.3f) else GlassBorderColor, RoundedCornerShape(24.dp))
+                        .border(1.dp, if (isFamily) PastelCyan.copy(alpha = 0.35f) else GlassBorderColor, RoundedCornerShape(26.dp))
                         .padding(22.dp)
                 ) {
                     Column {
@@ -347,35 +350,35 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (isFamily) "FAMILY VAULT • NET CASH FLOW" else "NET CASH FLOW",
-                                fontSize = 12.sp,
+                                text = if (isFamily) "FAMILY VAULT BALANCE" else "TOTAL NET BALANCE",
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.2.sp,
-                                color = if (isFamily) GoldAccent else SlateDarkTextSecondary
+                                letterSpacing = 1.3.sp,
+                                color = if (isFamily) PastelCyan else PastelIndigo
                             )
 
                             if (state.transactions.isNotEmpty()) {
                                 Surface(
-                                    color = if (netBalance >= 0) IncomeGreen.copy(alpha = 0.15f) else ExpenseRed.copy(alpha = 0.15f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (netBalance >= 0) IncomeGreen.copy(alpha = 0.3f) else ExpenseRed.copy(alpha = 0.3f))
+                                    color = if (netBalance >= 0) PastelGreenContainer else PastelRoseContainer,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (netBalance >= 0) PastelGreen.copy(alpha = 0.35f) else PastelRose.copy(alpha = 0.35f))
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = if (netBalance >= 0) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                                            imageVector = if (netBalance >= 0) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
                                             contentDescription = null,
-                                            tint = if (netBalance >= 0) IncomeGreen else ExpenseRed,
-                                            modifier = Modifier.size(14.dp)
+                                            tint = if (netBalance >= 0) PastelGreen else PastelRose,
+                                            modifier = Modifier.size(13.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = if (netBalance >= 0) "Surplus" else "Deficit",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (netBalance >= 0) IncomeGreen else ExpenseRed
+                                            color = if (netBalance >= 0) PastelGreen else PastelRose
                                         )
                                     }
                                 }
@@ -387,10 +390,10 @@ fun HomeScreen(
                         // Large Net Balance Typography
                         Text(
                             text = "${if (netBalance >= 0) "" else "-"}${state.currencySymbol}${String.format(Locale.US, "%,.2f", Math.abs(netBalance))}",
-                            fontSize = 32.sp,
+                            fontSize = 34.sp,
                             fontWeight = FontWeight.Black,
                             color = SlateDarkTextPrimary,
-                            letterSpacing = 0.sp,
+                            letterSpacing = (-0.5).sp,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
@@ -404,33 +407,33 @@ fun HomeScreen(
                         ) {
                             // Income Pill
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color.White.copy(alpha = 0.05f),
+                                shape = RoundedCornerShape(16.dp),
+                                color = SlateDarkSurface.copy(alpha = 0.7f),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(12.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(IncomeGreen.copy(alpha = 0.2f)),
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(PastelGreenContainer),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             Icons.Default.ArrowDownward,
                                             contentDescription = null,
-                                            tint = IncomeGreen,
-                                            modifier = Modifier.size(16.dp)
+                                            tint = PastelGreen,
+                                            modifier = Modifier.size(15.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f, fill = false)) {
                                         Text(
-                                            if (isFamily) "Family Income" else "Income",
+                                            if (isFamily) "Family In" else "Income",
                                             fontSize = 11.sp,
                                             color = SlateDarkTextSecondary,
                                             maxLines = 1,
@@ -440,7 +443,7 @@ fun HomeScreen(
                                             "+${state.currencySymbol}${String.format(Locale.US, "%,.0f", totalIncome)}",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = IncomeGreen,
+                                            color = PastelGreen,
                                             maxLines = 1,
                                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                         )
@@ -450,33 +453,33 @@ fun HomeScreen(
 
                             // Expense Pill
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color.White.copy(alpha = 0.05f),
+                                shape = RoundedCornerShape(16.dp),
+                                color = SlateDarkSurface.copy(alpha = 0.7f),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(12.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(ExpenseRed.copy(alpha = 0.2f)),
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(PastelRoseContainer),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             Icons.Default.ArrowUpward,
                                             contentDescription = null,
-                                            tint = ExpenseRed,
-                                            modifier = Modifier.size(16.dp)
+                                            tint = PastelRose,
+                                            modifier = Modifier.size(15.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f, fill = false)) {
                                         Text(
-                                            if (isFamily) "Family Expense" else "Expenses",
+                                            if (isFamily) "Family Out" else "Spent",
                                             fontSize = 11.sp,
                                             color = SlateDarkTextSecondary,
                                             maxLines = 1,
@@ -486,7 +489,7 @@ fun HomeScreen(
                                             "-${state.currencySymbol}${String.format(Locale.US, "%,.0f", totalExpense)}",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = ExpenseRed,
+                                            color = PastelRose,
                                             maxLines = 1,
                                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                         )
@@ -501,55 +504,55 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // --- 5. QUICK ACTIONS HUB (4 Spaced Actions) ---
+        // --- 5. QUICK ACTIONS HUB (4 Clean Action Cards) ---
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp),
+                    .height(60.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Scan UPI QR Action
-                GlassActionButton(
+                QuickActionCard(
                     icon = Icons.Default.QrCodeScanner,
-                    contentDescription = "Scan UPI",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("btn_scan_upi_qr"),
-                    accentColor = Color(0xFF8B5CF6),
+                    label = "Scan QR",
+                    accentColor = PastelPurple,
+                    containerColor = PastelPurpleContainer,
+                    testTag = "btn_scan_upi_qr",
+                    modifier = Modifier.weight(1f),
                     onClick = onOpenUpiScan
                 )
 
                 // Scan Receipt Action
-                GlassActionButton(
-                    icon = Icons.Default.ReceiptLong,
-                    contentDescription = "Scan Bill",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("btn_scan_receipt"),
-                    accentColor = Color(0xFF06B6D4),
+                QuickActionCard(
+                    icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                    label = "Receipt",
+                    accentColor = PastelCyan,
+                    containerColor = PastelCyanContainer,
+                    testTag = "btn_scan_receipt",
+                    modifier = Modifier.weight(1f),
                     onClick = onOpenReceiptScanner
                 )
 
                 // UPI Pay Action
-                GlassActionButton(
+                QuickActionCard(
                     icon = Icons.Default.Payment,
-                    contentDescription = "Pay UPI",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("btn_pay_upi"),
-                    accentColor = EmeraldDarkPrimary,
+                    label = "UPI Pay",
+                    accentColor = PastelGreen,
+                    containerColor = PastelGreenContainer,
+                    testTag = "btn_pay_upi",
+                    modifier = Modifier.weight(1f),
                     onClick = onOpenUpiPay
                 )
 
                 // AI Voice Entry Action
-                GlassActionButton(
+                QuickActionCard(
                     icon = Icons.Default.Mic,
-                    contentDescription = "Voice AI",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("btn_voice_entry"),
-                    accentColor = Color(0xFF6366F1),
+                    label = "Voice AI",
+                    accentColor = PastelIndigo,
+                    containerColor = PastelIndigoContainer,
+                    testTag = "btn_voice_entry",
+                    modifier = Modifier.weight(1f),
                     onClick = onOpenVoiceAssistant
                 )
             }
@@ -559,29 +562,30 @@ fun HomeScreen(
 
         // --- 6. SPENDING INSIGHT CARD ---
         item {
-            GlassCard(
+            CleanCard(
                 modifier = Modifier.fillMaxWidth(),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f),
+                contentPadding = PaddingValues(14.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(GoldAccent.copy(alpha = 0.15f)),
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(PastelAmberContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Lightbulb,
                             contentDescription = null,
-                            tint = GoldAccent,
-                            modifier = Modifier.size(18.dp)
+                            tint = PastelAmber,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (isFamily) "Family Spending Insight" else "Spending Insight",
+                            text = if (isFamily) "Family Spending Insight" else "Smart Insight",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = SlateDarkTextPrimary
@@ -596,7 +600,7 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
         }
 
         // --- 7. RECENT TRANSACTIONS HEADER ---
@@ -647,7 +651,7 @@ fun HomeScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ReceiptLong,
+                            imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
                             contentDescription = null,
                             tint = SlateDarkTextMuted,
                             modifier = Modifier.size(36.dp)
@@ -700,6 +704,59 @@ fun HomeScreen(
             },
             creatorName = memberName
         )
+    }
+}
+
+@Composable
+fun QuickActionCard(
+    icon: ImageVector,
+    label: String,
+    accentColor: Color,
+    containerColor: Color,
+    testTag: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = SlateDarkSurface.copy(alpha = 0.85f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor),
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() }
+            .testTag(testTag)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(containerColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = accentColor,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = SlateDarkTextPrimary,
+                maxLines = 1
+            )
+        }
     }
 }
 

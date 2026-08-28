@@ -2,6 +2,7 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -53,10 +54,30 @@ class MainActivity : ComponentActivity() {
         setContent {
             CashFlowTheme {
                 val isAuthenticated by viewModel.isAuthenticated.collectAsStateWithLifecycle()
+                val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 var currentScreen by remember(isAuthenticated) {
                     mutableStateOf(if (isAuthenticated) ZenithNavScreen.MAIN else ZenithNavScreen.SPLASH)
                 }
                 var initialAuthIsSignUp by remember { mutableStateOf(false) }
+
+                // Safe Back Navigation Handler to prevent unwanted force exit on Back press
+                BackHandler(enabled = true) {
+                    when (currentScreen) {
+                        ZenithNavScreen.AUTH -> {
+                            currentScreen = ZenithNavScreen.SPLASH
+                        }
+                        ZenithNavScreen.MAIN -> {
+                            if (uiState.selectedTab != 0) {
+                                viewModel.setTab(0)
+                            } else {
+                                finish()
+                            }
+                        }
+                        ZenithNavScreen.SPLASH -> {
+                            finish()
+                        }
+                    }
+                }
 
                 AnimatedContent(
                     targetState = currentScreen,
@@ -109,21 +130,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class NavigationItem(
-    val title: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
-    val testTag: String
-) {
-    HOME("Home", Icons.Default.Home, Icons.Outlined.Home, "nav_home"),
-    TRANSACTIONS("Activity", Icons.Default.ReceiptLong, Icons.Outlined.ReceiptLong, "nav_transactions"),
-    BUDGETS("Budgets", Icons.Default.PieChart, Icons.Outlined.PieChart, "nav_budgets"),
-    ANALYTICS("Analytics", Icons.Default.BarChart, Icons.Outlined.BarChart, "nav_analytics"),
-    PROFILE("Profile", Icons.Default.Person, Icons.Outlined.Person, "nav_profile")
-}
-
 @Composable
 fun CashFlowMainApp(viewModel: CashFlowViewModel) {
+    val familyLedgerViewModel: com.example.ui.familyledger.FamilyLedgerViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val familyLedgerUiState by familyLedgerViewModel.uiState.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val currentFinanceScope by viewModel.currentFinanceScope.collectAsStateWithLifecycle()
     val activeFamilyId by viewModel.activeFamilyId.collectAsStateWithLifecycle()
@@ -136,6 +146,16 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
     val totalExpense = remember(uiState.transactions) { viewModel.getTotalExpense(uiState.transactions) }
     val netBalance = remember(uiState.transactions) { viewModel.getNetBalance(uiState.transactions) }
 
+    // If in Family Ledger Scope, render the full redesigned FamilyLedger module!
+    if (currentFinanceScope == FinanceScope.FAMILY) {
+        com.example.ui.familyledger.FamilyLedgerScreen(
+            viewModel = familyLedgerViewModel,
+            state = familyLedgerUiState,
+            onBackToPersonal = { viewModel.setFinanceScope(FinanceScope.PERSONAL) }
+        )
+        return
+    }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -146,11 +166,11 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
                 modifier = Modifier
-                    .padding(end = 8.dp, bottom = 42.dp)
+                    .padding(end = 4.dp, bottom = 6.dp)
                     .testTag("fab_add_transaction"),
                 shape = RoundedCornerShape(18.dp),
-                containerColor = if (currentFinanceScope == FinanceScope.FAMILY) GoldAccent else EmeraldDarkPrimary,
-                contentColor = if (currentFinanceScope == FinanceScope.FAMILY) Color.Black else Color.White,
+                containerColor = EmeraldDarkPrimary,
+                contentColor = Color.White,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 12.dp)
             ) {
                 Icon(

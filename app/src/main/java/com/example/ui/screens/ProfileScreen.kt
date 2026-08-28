@@ -35,6 +35,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.models.FinanceScope
 import com.example.ui.components.BackupRestoreModal
+import com.example.ui.components.CleanCard
 import com.example.ui.components.ExportDataModal
 import com.example.ui.components.FamilyMembersDialog
 import com.example.ui.components.GlassCard
@@ -129,9 +130,9 @@ fun ProfileScreen(
             val currentFamId = activeFamily?.inviteCode?.takeIf { it.isNotBlank() } ?: activeFamily?.id ?: activeFamilyId ?: ""
             val currentFamName = activeFamily?.name ?: "${activeUserName ?: "Zenith"} Family Vault"
 
-            GlassCard(
+            CleanCard(
                 modifier = Modifier.fillMaxWidth().testTag("profile_family_card"),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -224,9 +225,9 @@ fun ProfileScreen(
         item {
             ProfileSectionTitle("Finance Preferences")
 
-            GlassCard(
+            CleanCard(
                 modifier = Modifier.fillMaxWidth(),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
             ) {
                 // Currency Selector
                 Text(
@@ -291,9 +292,9 @@ fun ProfileScreen(
         item {
             ProfileSectionTitle("App Preferences")
 
-            GlassCard(
+            CleanCard(
                 modifier = Modifier.fillMaxWidth(),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
             ) {
                 // Dark Mode Switch
                 PreferenceSwitchRow(
@@ -338,9 +339,9 @@ fun ProfileScreen(
         item {
             ProfileSectionTitle("Data & Privacy")
 
-            GlassCard(
+            CleanCard(
                 modifier = Modifier.fillMaxWidth(),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
             ) {
                 // Export Data
                 PreferenceActionRow(
@@ -399,12 +400,12 @@ fun ProfileScreen(
         item {
             ProfileSectionTitle("Support & About")
 
-            GlassCard(
+            CleanCard(
                 modifier = Modifier.fillMaxWidth(),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
             ) {
                 PreferenceActionRow(
-                    icon = Icons.Outlined.HelpOutline,
+                    icon = Icons.AutoMirrored.Outlined.HelpOutline,
                     title = "Help & Voice Guide",
                     subtitle = "How to speak Tanglish & English voice entries",
                     actionLabel = "Guide",
@@ -431,9 +432,9 @@ fun ProfileScreen(
         item {
             ProfileSectionTitle("Account Actions")
 
-            GlassCard(
+            CleanCard(
                 modifier = Modifier.fillMaxWidth(),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
             ) {
                 if (isAuthenticated && !isGuestMode) {
                     PreferenceActionRow(
@@ -685,9 +686,9 @@ fun ProfileScreen(
 fun ProfileSectionTitle(title: String) {
     Text(
         text = title,
-        fontSize = 14.sp,
+        fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
-        letterSpacing = 0.5.sp,
+        letterSpacing = 1.2.sp,
         color = SlateDarkTextSecondary,
         modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
     )
@@ -707,9 +708,10 @@ fun UserProfileGlassHeader(
 ) {
     val initial = userName.trim().firstOrNull()?.uppercase() ?: "Z"
 
-    GlassCard(
+    CleanCard(
         modifier = Modifier.fillMaxWidth().testTag("profile_header_card"),
-        backgroundColor = GlassCardBg
+        backgroundColor = SlateDarkSurface.copy(alpha = 0.85f),
+        contentPadding = PaddingValues(20.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -718,17 +720,17 @@ fun UserProfileGlassHeader(
             // Avatar Circle
             Box(
                 modifier = Modifier
-                    .size(58.dp)
+                    .size(56.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
-                            if (!isGuest) listOf(EmeraldDarkPrimary, CyanDarkSecondary)
+                            if (!isGuest) listOf(EmeraldDarkPrimary, PastelCyan)
                             else listOf(SlateDarkSurfaceVariant, SlateDarkBorder)
                         )
                     )
                     .border(
                         1.5.dp,
-                        if (!isGuest) EmeraldDarkPrimary.copy(alpha = 0.6f) else GlassBorderColor,
+                        if (!isGuest) PastelIndigo.copy(alpha = 0.6f) else GlassBorderColor,
                         CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -744,8 +746,8 @@ fun UserProfileGlassHeader(
                     Icon(
                         imageVector = Icons.Default.PersonOutline,
                         contentDescription = null,
-                        tint = EmeraldDarkPrimary,
-                        modifier = Modifier.size(28.dp)
+                        tint = PastelIndigo,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
@@ -768,7 +770,7 @@ fun UserProfileGlassHeader(
                             onClick = onEditNameClick,
                             modifier = Modifier.size(22.dp)
                         ) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit Name", tint = GoldAccent, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Edit, contentDescription = "Edit Name", tint = PastelCyan, modifier = Modifier.size(14.dp))
                         }
                     }
                 }
@@ -784,14 +786,15 @@ fun UserProfileGlassHeader(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (!isGuest) IncomeGreen.copy(alpha = 0.15f) else GoldAccent.copy(alpha = 0.15f)
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (!isGuest) PastelGreenContainer else PastelCyanContainer,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (!isGuest) PastelGreen.copy(alpha = 0.3f) else PastelCyan.copy(alpha = 0.3f))
                     ) {
                         Text(
                             text = if (!isGuest) "● Cloud Synced" else "● Local Offline",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (!isGuest) IncomeGreen else GoldAccent,
+                            color = if (!isGuest) PastelGreen else PastelCyan,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -812,7 +815,7 @@ fun UserProfileGlassHeader(
                     onClick = onSyncClick,
                     enabled = !isSyncing,
                     modifier = Modifier.weight(1f).height(40.dp),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                 ) {
                     if (isSyncing) {
@@ -829,11 +832,9 @@ fun UserProfileGlassHeader(
                 OutlinedButton(
                     onClick = onSignOutClick,
                     modifier = Modifier.weight(1f).height(40.dp),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Sign Out", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("Sign Out", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
         } else {
@@ -844,7 +845,7 @@ fun UserProfileGlassHeader(
                 Button(
                     onClick = onSignInClick,
                     modifier = Modifier.weight(1f).height(40.dp),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                 ) {
                     Text("Sign In", fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -853,7 +854,7 @@ fun UserProfileGlassHeader(
                 OutlinedButton(
                     onClick = onCreateAccountClick,
                     modifier = Modifier.weight(1.2f).height(40.dp),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text("Create Account", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }

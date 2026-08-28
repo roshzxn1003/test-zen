@@ -25,6 +25,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.data.models.BudgetEntity
 import com.example.data.models.SavingsGoalEntity
 import com.example.data.models.TransactionType
+import com.example.ui.components.CleanCard
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.CashFlowUiState
@@ -68,8 +69,8 @@ fun BudgetsAndGoalsScreen(
             .filter { tx ->
                 val date = Date(tx.dateMillis)
                 when (budget.periodType) {
-                    "MONTHLY" -> sdfMonth.format(date) == budget.monthYear
-                    "YEARLY" -> sdfYear.format(date) == budget.monthYear.substring(0, 4)
+                    "MONTHLY" -> budget.monthYear.isNotBlank() && sdfMonth.format(date) == budget.monthYear
+                    "YEARLY" -> budget.monthYear.length >= 4 && sdfYear.format(date) == budget.monthYear.take(4)
                     else -> true
                 }
             }
@@ -92,13 +93,13 @@ fun BudgetsAndGoalsScreen(
             .padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 140.dp)
     ) {
-        // --- 1. BUDGET HEALTH OVERVIEW GLASS CARD ---
+        // --- 1. BUDGET HEALTH OVERVIEW CLEAN CARD ---
         item {
-            GlassCard(
+            CleanCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 20.dp),
-                backgroundColor = GlassCardBg
+                backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -107,7 +108,7 @@ fun BudgetsAndGoalsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
-                            text = "Budget Health",
+                            text = "Budget Overview",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = SlateDarkTextPrimary
@@ -121,8 +122,9 @@ fun BudgetsAndGoalsScreen(
 
                     AnimatedVisibility(visible = overbudgetCount > 0) {
                         Surface(
-                            color = ExpenseRed,
-                            shape = RoundedCornerShape(10.dp)
+                            color = PastelRoseContainer,
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, PastelRose.copy(alpha = 0.35f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -131,13 +133,13 @@ fun BudgetsAndGoalsScreen(
                                 Icon(
                                     Icons.Default.Warning,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = PastelRose,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "$overbudgetCount Over",
-                                    color = Color.White,
+                                    color = PastelRose,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -162,7 +164,7 @@ fun BudgetsAndGoalsScreen(
                             text = "${state.currencySymbol}${String.format(Locale.US, "%,.2f", totalSpentOnBudgets)}",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (totalSpentOnBudgets > totalBudgeted && totalBudgeted > 0) ExpenseRed else SlateDarkTextPrimary
+                            color = if (totalSpentOnBudgets > totalBudgeted && totalBudgeted > 0) PastelRose else SlateDarkTextPrimary
                         )
                     }
 
@@ -190,9 +192,9 @@ fun BudgetsAndGoalsScreen(
                         .height(10.dp)
                         .clip(CircleShape),
                     color = when {
-                        overallProgress >= 1.0f -> ExpenseRed
-                        overallProgress >= 0.8f -> GoalAmber
-                        else -> IncomeGreen
+                        overallProgress >= 1.0f -> PastelRose
+                        overallProgress >= 0.8f -> PastelAmber
+                        else -> PastelGreen
                     },
                     trackColor = SlateDarkSurfaceVariant
                 )
@@ -208,7 +210,7 @@ fun BudgetsAndGoalsScreen(
                         else "Over budget by ${state.currencySymbol}${String.format(Locale.US, "%,.2f", -totalRemaining)}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (totalRemaining < 0) ExpenseRed else IncomeGreen
+                        color = if (totalRemaining < 0) PastelRose else PastelGreen
                     )
 
                     Text(

@@ -28,7 +28,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -207,7 +208,11 @@ fun VoiceAiModal(
             isPermissionDenied = true
             errorMessage = "Microphone permission is required for voice entry."
             modalState = VoiceModalState.ERROR
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            try {
+                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             return
         }
 
@@ -317,7 +322,7 @@ fun VoiceAiModal(
     fun speakAloud(text: String) {
         val ttsEngine = tts ?: return
         if (!isTtsReady) return
-        val targetLocale = if (selectedLanguageCode == "ta-IN") Locale("ta", "IN") else Locale.US
+        val targetLocale = if (selectedLanguageCode == "ta-IN") Locale.forLanguageTag("ta-IN") else Locale.US
         ttsEngine.language = targetLocale
         ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ZENITH_VOICE_OUT")
     }
@@ -1019,7 +1024,7 @@ fun VoiceAiModal(
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = CyanDarkSecondary),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = if (selectedLanguageCode == "ta-IN") "🔊 உரக்கக் கேட்கவும் (Read Aloud)" else "🔊 Read Aloud Summary",

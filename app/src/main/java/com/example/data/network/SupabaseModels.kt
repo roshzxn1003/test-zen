@@ -28,6 +28,7 @@ data class FamilyMemberDto(
     val id: String,
     @SerialName("family_id") val familyId: String,
     @SerialName("user_id") val userId: String,
+    val name: String? = null,
     val role: String,
     @SerialName("joined_at") val joinedAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null

@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -311,6 +313,15 @@ fun ReceiptScanModal(
         }
     }
 
+    fun onChooseGalleryClick() {
+        try {
+            galleryLauncher.launch("image/*")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "No gallery or file picker app available.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun handleSaveExecution(force: Boolean = false) {
         val totalVal = editTotal.toDoubleOrNull() ?: 0.0
         val subtotalVal = editSubtotal.toDoubleOrNull() ?: totalVal
@@ -386,7 +397,7 @@ fun ReceiptScanModal(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ReceiptLong,
+                                imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
                                 contentDescription = null,
                                 tint = Color(0xFF8B5CF6),
                                 modifier = Modifier.size(20.dp)
@@ -488,7 +499,7 @@ fun ReceiptScanModal(
                                 }
 
                                 OutlinedButton(
-                                    onClick = { galleryLauncher.launch("image/*") },
+                                    onClick = { onChooseGalleryClick() },
                                     modifier = Modifier.weight(1.2f).height(42.dp),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
@@ -881,7 +892,7 @@ fun ReceiptScanModal(
                         }
 
                         OutlinedButton(
-                            onClick = { galleryLauncher.launch("image/*") },
+                            onClick = { onChooseGalleryClick() },
                             modifier = Modifier.weight(1f).height(46.dp).testTag("btn_choose_gallery"),
                             shape = RoundedCornerShape(12.dp)
                         ) {

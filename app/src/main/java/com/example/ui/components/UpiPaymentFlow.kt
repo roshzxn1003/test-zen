@@ -301,36 +301,33 @@ fun UpiPaymentFlow(
                             )
                         }
                         
-                        val isFailedOrCancelled = upiIntentResult?.status == UpiPaymentStatus.FAILED || upiIntentResult?.status == UpiPaymentStatus.CANCELLED
-                        
-                        if (!isFailedOrCancelled) {
-                            Text(
-                                text = "Save this transaction to your ledger?",
-                                fontSize = 11.sp,
-                                color = SlateDarkTextMuted,
-                                modifier = Modifier.padding(top = 10.dp)
-                            )
-                        }
-                        
+                        val isFailed = upiIntentResult?.status == UpiPaymentStatus.FAILED
+
+                        Text(
+                            text = "Save this payment to your ledger?",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = SlateDarkTextMuted,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+
                         Spacer(modifier = Modifier.height(16.dp))
-                        
-                        if (!isFailedOrCancelled) {
-                            Button(
-                                onClick = {
-                                    showPaymentConfirm = false
-                                    onSaveConfirmed(returnedTxnRef)
-                                },
-                                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("btn_upi_save"),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
-                            ) {
-                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Save Transaction", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                showPaymentConfirm = false
+                                onSaveConfirmed(returnedTxnRef)
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("btn_upi_save"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Save Transaction", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
-                        
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         TextButton(
                             onClick = {
                                 showPaymentConfirm = false
@@ -339,7 +336,7 @@ fun UpiPaymentFlow(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(if (isFailedOrCancelled) "Close" else "Don't Save", fontSize = 13.sp, color = SlateDarkTextSecondary)
+                            Text("Don't Save / Cancel", fontSize = 13.sp, color = SlateDarkTextSecondary)
                         }
                     }
                 }

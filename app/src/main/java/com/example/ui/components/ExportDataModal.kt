@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -154,7 +156,7 @@ fun ExportDataModal(
                         FormatCard(
                             title = "Excel",
                             subtitle = "Spreadsheet",
-                            icon = Icons.Default.InsertDriveFile,
+                            icon = Icons.AutoMirrored.Filled.InsertDriveFile,
                             isSelected = selectedFormat == ExportFormat.EXCEL,
                             accentColor = IncomeGreen,
                             modifier = Modifier.weight(1f),
@@ -447,7 +449,7 @@ fun ExportDataModal(
                                 modifier = Modifier.weight(1f).height(44.dp).testTag("btn_open_export"),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Icon(Icons.Outlined.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.AutoMirrored.Outlined.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Open", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }

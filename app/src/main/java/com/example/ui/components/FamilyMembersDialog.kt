@@ -67,15 +67,24 @@ fun FamilyMembersDialog(
 
     fun shareInviteCode() {
         if (familyId.isBlank()) return
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Join my Family Ledger on Zenith")
-            putExtra(
-                Intent.EXTRA_TEXT,
-                "Join our shared Family Ledger '$familyName' on Zenith Finance!\n\nFamily Vault ID: $familyId\n\nOpen Zenith > Family Ledger > Join Vault and enter this code to connect instantly."
-            )
+        try {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Join my Family Ledger on Zenith")
+                putExtra(
+                    Intent.EXTRA_TEXT,
+                    "Join our shared Family Ledger '$familyName' on Zenith Finance!\n\nFamily Vault ID: $familyId\n\nOpen Zenith > Family Ledger > Join Vault and enter this code to connect instantly."
+                )
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(shareIntent, "Share Family Vault Invite").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            android.widget.Toast.makeText(context, "Could not share invite: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
         }
-        context.startActivity(Intent.createChooser(shareIntent, "Share Family Vault Invite"))
     }
 
     Dialog(onDismissRequest = onDismiss) {

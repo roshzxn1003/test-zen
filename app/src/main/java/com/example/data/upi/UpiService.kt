@@ -6,21 +6,35 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.util.Locale
 
 /**
- * Parsed UPI payment information. Mirrors the NPCI UPI Linking Specification
- * query parameters used by every UPI app on Android.
+ * Parsed UPI payment information.
+ *
+ * Standard UPI parameters:
+ * pa = Payee VPA
+ * pn = Payee name
+ * am = Amount
+ * cu = Currency
+ * tn = Transaction note
+ * tr = Transaction reference
+ * mc = Merchant category code
  */
 data class UpiPaymentInfo(
-    val payeeAddress: String,      // pa  - VPA, e.g. "someone@okhdfcbank"
-    val payeeName: String = "",    // pn  - display name / merchant
-    val amount: String = "",       // am  - optional, only when the QR carries it
-    val currency: String = "INR",  // cu
-    val note: String = "",         // tn  - transaction note
-    val txnRef: String = "",       // tr  - transaction reference id (only when provided)
-    val merchantCode: String = ""  // mc  - optional merchant category code
+    val payeeAddress: String,
+    val payeeName: String = "",
+    val amount: String = "",
+    val currency: String = "INR",
+    val note: String = "",
+    val txnRef: String = "",
+    val merchantCode: String = ""
 )
 
+/**
+ * Possible states of a UPI payment.
+ */
 enum class UpiPaymentStatus {
     INITIATED,
     PENDING,
@@ -30,10 +44,7 @@ enum class UpiPaymentStatus {
 }
 
 /**
- * Best-effort result of returning from a UPI app. UPI apps do NOT return a
- * reliable success/failure signal, so [returnedTxnRef] is only filled when a
- * supported app echoes one back and [userFlowState] is driven by the explicit
- * user confirmation, never assumed.
+ * Result returned after coming back from a UPI application.
  */
 data class UpiIntentResult(
     val launched: Boolean,
@@ -42,203 +53,866 @@ data class UpiIntentResult(
     val status: UpiPaymentStatus = UpiPaymentStatus.INITIATED,
     val message: String = ""
 ) {
-    val needsConfirmation: Boolean get() = launched && !cancelled
+    val needsConfirmation: Boolean
+        get() = launched && !cancelled
 }
 
 /**
- * Standard UPI deep-link integration (NPCI spec). Zenith only initiates a
- * payment to a VPA through an installed UPI app; it never touches the user's
- * UPI PIN, OTP or credentials, and it never reads another app's history.
+ * UPI payment service.
+ *
+ * This class:
+ * - Parses UPI QR data
+ * - Creates standard upi://pay URLs
+ * - Opens installed UPI apps
+ * - Supports Google Pay
+ * - Supports PhonePe, Paytm and BHIM detection
+ * - Handles the response from UPI applications
+ *
+ * It NEVER handles the user's UPI PIN, OTP or bank credentials.
  */
 object UpiService {
 
     private const val UPI_SCHEME = "upi"
     private const val UPI_AUTHORITY = "pay"
 
-    private val VPA_REGEX = Regex("^[a-zA-Z0-9][a-zA-Z0-9.\\-_]{1,}@[a-zA-Z]{2,}$")
-
-    fun isValidVpa(vpa: String): Boolean = VPA_REGEX.matches(vpa.trim())
-
     /**
-     * Builds the `upi://pay` deep-link URI from the NPCI parameter set.
+     * VPA validation.
+     *
+     * Examples:
+     * someone@okhdfcbank
+     * 9876543210@paytm
+     * merchant@oksbi
      */
-    fun buildPaymentUri(info: UpiPaymentInfo): Uri {
-        val builder = Uri.Builder()
-            .scheme(UPI_SCHEME)
-            .authority(UPI_AUTHORITY)
-            .appendQueryParameter("pa", info.payeeAddress)
-        if (info.payeeName.isNotBlank()) builder.appendQueryParameter("pn", info.payeeName)
-        if (info.amount.isNotBlank()) builder.appendQueryParameter("am", info.amount)
-        if (info.currency.isNotBlank()) builder.appendQueryParameter("cu", info.currency)
-        if (info.note.isNotBlank()) builder.appendQueryParameter("tn", info.note)
-        if (info.txnRef.isNotBlank()) builder.appendQueryParameter("tr", info.txnRef)
-        if (info.merchantCode.isNotBlank()) builder.appendQueryParameter("mc", info.merchantCode)
-        return builder.build()
+    private val VPA_REGEX = Regex(
+        "^[a-zA-Z0-9][a-zA-Z0-9.\\-_+]{1,255}@[a-zA-Z0-9.\\-_]{2,64}$"
+    )
+
+    // ------------------------------------------------------------
+    // VPA VALIDATION
+    // ------------------------------------------------------------
+
+    fun isValidVpa(vpa: String): Boolean {
+        return VPA_REGEX.matches(vpa.trim())
     }
 
+    // ------------------------------------------------------------
+    // AMOUNT NORMALIZATION
+    // ------------------------------------------------------------
+
     /**
-     * Launch intent for [UpiPaymentInfo]. When [targetPackage] is blank,
-     * it generates a generic `upi://pay` Intent wrapped in `Intent.createChooser`
-     * so the Android system displays the native app selector tray for any installed UPI app.
+     * Converts the entered amount into a standard 2-decimal format.
+     *
+     * Examples:
+     *
+     * "2"       -> "2.00"
+     * "2.5"     -> "2.50"
+     * "10"      -> "10.00"
+     * "100.75"  -> "100.75"
      */
-    fun buildPayIntent(info: UpiPaymentInfo, targetPackage: String? = null, useChooser: Boolean = true): Intent? {
-        val uri = buildPaymentUri(info)
-        return if (targetPackage.isNullOrBlank()) {
-            val baseIntent = Intent(Intent.ACTION_VIEW, uri)
-            if (useChooser) Intent.createChooser(baseIntent, "Pay with any UPI App") else baseIntent
-        } else {
-            Intent(Intent.ACTION_VIEW, uri).setPackage(targetPackage)
+    private fun normalizeAmount(amount: String): String? {
+
+        val cleaned = amount.trim()
+
+        if (cleaned.isBlank()) {
+            return null
+        }
+
+        return try {
+
+            val value = BigDecimal(cleaned)
+
+            // Amount must be greater than zero
+            if (value <= BigDecimal.ZERO) {
+                null
+            } else {
+
+                value
+                    .setScale(2, RoundingMode.HALF_UP)
+                    .toPlainString()
+            }
+
+        } catch (e: NumberFormatException) {
+            null
         }
     }
 
-    /**
-     * Explicit generic intent chooser builder for NPCI `upi://pay` requests.
-     */
-    fun buildGenericChooserIntent(info: UpiPaymentInfo, title: String = "Pay with any UPI App"): Intent {
-        val uri = buildPaymentUri(info)
-        return Intent.createChooser(Intent(Intent.ACTION_VIEW, uri), title)
-    }
+    // ------------------------------------------------------------
+    // BUILD UPI PAYMENT URI
+    // ------------------------------------------------------------
 
     /**
-     * Installed apps that can handle `upi://pay` (requires a `<queries>` entry
-     * in the manifest for Android 11+).
+     * Builds:
+     *
+     * upi://pay?pa=...&pn=...&am=2.00&cu=INR
      */
-    fun installedUpiApps(context: Context): List<UpiApp> {
-        val probe = Intent(Intent.ACTION_VIEW).setData(Uri.parse("upi://pay"))
+    fun buildPaymentUri(info: UpiPaymentInfo): Uri {
+
+        val builder = Uri.Builder()
+            .scheme(UPI_SCHEME)
+            .authority(UPI_AUTHORITY)
+            .appendQueryParameter(
+                "pa",
+                info.payeeAddress.trim()
+            )
+
+        // Payee name
+        if (info.payeeName.isNotBlank()) {
+
+            builder.appendQueryParameter(
+                "pn",
+                info.payeeName.trim()
+            )
+        }
+
+        // Amount
+        if (info.amount.isNotBlank()) {
+
+            val normalizedAmount = normalizeAmount(info.amount)
+
+            if (normalizedAmount != null) {
+
+                builder.appendQueryParameter(
+                    "am",
+                    normalizedAmount
+                )
+            }
+        }
+
+        // Currency
+        builder.appendQueryParameter(
+            "cu",
+            if (info.currency.isBlank()) {
+                "INR"
+            } else {
+                info.currency.trim()
+            }
+        )
+
+        // Transaction note
+        if (info.note.isNotBlank()) {
+
+            builder.appendQueryParameter(
+                "tn",
+                info.note.trim()
+            )
+        }
+
+        // Transaction reference
+        if (info.txnRef.isNotBlank()) {
+
+            builder.appendQueryParameter(
+                "tr",
+                info.txnRef.trim()
+            )
+        }
+
+        // Merchant code
+        if (info.merchantCode.isNotBlank()) {
+
+            builder.appendQueryParameter(
+                "mc",
+                info.merchantCode.trim()
+            )
+        }
+
+        return builder.build()
+    }
+
+    // ------------------------------------------------------------
+    // GENERIC PAYMENT INTENT
+    // ------------------------------------------------------------
+
+    /**
+     * Creates a UPI payment Intent.
+     *
+     * If targetPackage is empty:
+     *     Shows the Android UPI app chooser.
+     *
+     * If targetPackage is provided:
+     *     Opens that specific UPI application.
+     */
+    fun buildPayIntent(
+        info: UpiPaymentInfo,
+        targetPackage: String? = null,
+        useChooser: Boolean = true
+    ): Intent {
+
+        val uri = buildPaymentUri(info)
+
+        return if (targetPackage.isNullOrBlank()) {
+
+            val baseIntent = Intent(
+                Intent.ACTION_VIEW,
+                uri
+            )
+
+            if (useChooser) {
+
+                Intent.createChooser(
+                    baseIntent,
+                    "Pay with any UPI App"
+                )
+
+            } else {
+
+                baseIntent
+            }
+
+        } else {
+
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            ).setPackage(targetPackage)
+        }
+    }
+
+    // ------------------------------------------------------------
+    // GENERIC UPI CHOOSER
+    // ------------------------------------------------------------
+
+    /**
+     * Opens the Android UPI app chooser.
+     */
+    fun buildGenericChooserIntent(
+        info: UpiPaymentInfo,
+        title: String = "Pay with any UPI App"
+    ): Intent {
+
+        val uri = buildPaymentUri(info)
+
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            uri
+        )
+
+        return Intent.createChooser(
+            intent,
+            title
+        )
+    }
+
+    // ------------------------------------------------------------
+    // CHECK INSTALLED UPI APPS
+    // ------------------------------------------------------------
+
+    /**
+     * Returns all installed applications that can handle:
+     *
+     * upi://pay
+     */
+    fun installedUpiApps(
+        context: Context
+    ): List<UpiApp> {
+
+        val probe = Intent(
+            Intent.ACTION_VIEW
+        ).setData(
+            Uri.parse("upi://pay")
+        )
+
         return try {
-            context.packageManager.queryIntentActivities(probe, PackageManager.MATCH_DEFAULT_ONLY)
-                .sortedBy { it.activityInfo.packageName }
-                .map { resolve ->
-                    val label = try {
-                        context.packageManager.getApplicationLabel(
-                            context.packageManager.getApplicationInfo(resolve.activityInfo.packageName, 0)
-                        ).toString()
-                    } catch (e: Exception) {
-                        resolve.activityInfo.packageName
-                    }
-                    UpiApp(packageName = resolve.activityInfo.packageName, label = label)
+
+            context.packageManager
+                .queryIntentActivities(
+                    probe,
+                    PackageManager.MATCH_DEFAULT_ONLY
+                )
+                .sortedBy {
+                    it.activityInfo.packageName
                 }
+                .map { resolveInfo ->
+
+                    val packageName =
+                        resolveInfo.activityInfo.packageName
+
+                    val label = try {
+
+                        context.packageManager
+                            .getApplicationLabel(
+                                context.packageManager
+                                    .getApplicationInfo(
+                                        packageName,
+                                        0
+                                    )
+                            )
+                            .toString()
+
+                    } catch (e: Exception) {
+
+                        packageName
+                    }
+
+                    UpiApp(
+                        packageName = packageName,
+                        label = label
+                    )
+                }
+
         } catch (e: Exception) {
+
             emptyList()
         }
     }
 
-    fun isAnyUpiAppInstalled(context: Context): Boolean = installedUpiApps(context).isNotEmpty()
-
     /**
-     * Parses a raw QR payload into [UpiPaymentInfo]. Supports a full
-     * `upi://pay?pa=...&pn=...` URI or a bare VPA.
+     * Checks whether at least one UPI application is installed.
      */
-    fun parseQrPayload(raw: String): UpiPaymentInfo? {
-        val trimmed = raw.trim()
-        if (trimmed.isBlank()) return null
+    fun isAnyUpiAppInstalled(
+        context: Context
+    ): Boolean {
 
-        if (trimmed.startsWith("upi://") || trimmed.startsWith("UPI://")) {
-            val uri = Uri.parse(trimmed)
-            val pa = uri.getQueryParameter("pa") ?: return null
-            return UpiPaymentInfo(
-                payeeAddress = pa,
-                payeeName = uri.getQueryParameter("pn") ?: "",
-                amount = uri.getQueryParameter("am") ?: "",
-                currency = uri.getQueryParameter("cu") ?: "INR",
-                note = uri.getQueryParameter("tn") ?: "",
-                txnRef = uri.getQueryParameter("tr") ?: "",
-                merchantCode = uri.getQueryParameter("mc") ?: ""
-            )
-        }
-
-        return if (isValidVpa(trimmed)) UpiPaymentInfo(payeeAddress = trimmed) else null
+        return installedUpiApps(context).isNotEmpty()
     }
 
+    // ------------------------------------------------------------
+    // QR CODE PARSER
+    // ------------------------------------------------------------
+
     /**
-     * Best-effort reading of the ActivityResult after a UPI app returns.
-     * Never treats result codes as proof of payment success.
+     * Parses raw QR content.
+     *
+     * Supports:
+     *
+     * 1. upi://pay?... URLs
+     * 2. Text containing a UPI URL
+     * 3. Bare VPA
+     *
+     * Examples:
+     *
+     * upi://pay?pa=merchant@okaxis&pn=Merchant
+     *
+     * merchant@okaxis
      */
-    fun mapResult(resultCode: Int, data: Intent?): UpiIntentResult {
+    fun parseQrPayload(
+        raw: String
+    ): UpiPaymentInfo? {
+
+        val trimmed = raw.trim()
+
+        if (trimmed.isBlank()) {
+            return null
+        }
+
+        // --------------------------------------------------------
+        // 1. UPI URL
+        // --------------------------------------------------------
+
+        val upiIndex = trimmed.indexOf(
+            "upi://pay",
+            ignoreCase = true
+        )
+
+        if (upiIndex >= 0) {
+
+            try {
+
+                val upiUriString =
+                    trimmed.substring(upiIndex)
+
+                val uri =
+                    Uri.parse(upiUriString)
+
+                val queryParamMap =
+                    mutableMapOf<String, String>()
+
+                uri.queryParameterNames.forEach { name ->
+
+                    uri.getQueryParameter(name)?.let { value ->
+
+                        queryParamMap[
+                            name.lowercase(Locale.ROOT)
+                        ] = value
+                    }
+                }
+
+                val pa =
+                    queryParamMap["pa"]
+
+                if (
+                    !pa.isNullOrBlank() &&
+                    isValidVpa(pa)
+                ) {
+
+                    return UpiPaymentInfo(
+
+                        payeeAddress =
+                            pa.trim(),
+
+                        payeeName =
+                            queryParamMap["pn"] ?: "",
+
+                        amount =
+                            queryParamMap["am"] ?: "",
+
+                        currency =
+                            queryParamMap["cu"]
+                                ?: "INR",
+
+                        note =
+                            queryParamMap["tn"]
+                                ?: "",
+
+                        txnRef =
+                            queryParamMap["tr"]
+                                ?: "",
+
+                        merchantCode =
+                            queryParamMap["mc"]
+                                ?: ""
+                    )
+                }
+
+            } catch (e: Exception) {
+
+                // Continue to VPA fallback
+            }
+        }
+
+        // --------------------------------------------------------
+        // 2. SEARCH FOR VPA INSIDE TEXT
+        // --------------------------------------------------------
+
+        if (trimmed.contains("@")) {
+
+            val tokens =
+                trimmed.split(
+                    Regex("[\\s:?&=;,/|]")
+                )
+
+            val candidate =
+                tokens.firstOrNull {
+
+                    isValidVpa(
+                        it.trim()
+                    )
+                }
+
+            if (candidate != null) {
+
+                return UpiPaymentInfo(
+                    payeeAddress =
+                        candidate.trim(),
+
+                    payeeName =
+                        "UPI Merchant"
+                )
+            }
+        }
+
+        // --------------------------------------------------------
+        // 3. BARE VPA
+        // --------------------------------------------------------
+
+        return if (
+            isValidVpa(trimmed)
+        ) {
+
+            UpiPaymentInfo(
+                payeeAddress =
+                    trimmed
+            )
+
+        } else {
+
+            null
+        }
+    }
+
+    // ------------------------------------------------------------
+    // HANDLE UPI RESULT
+    // ------------------------------------------------------------
+
+    /**
+     * Handles the result returned from a UPI application.
+     *
+     * IMPORTANT:
+     *
+     * UPI applications do not always return a reliable result.
+     * Therefore the app should not assume SUCCESS just because
+     * the UPI application was opened.
+     */
+    fun mapResult(
+        resultCode: Int,
+        data: Intent?
+    ): UpiIntentResult {
+
+        // User returned without response data
         if (data == null) {
+
             return UpiIntentResult(
+
                 launched = true,
-                cancelled = resultCode == Activity.RESULT_CANCELED,
+
+                cancelled = false,
+
                 returnedTxnRef = null,
-                status = if (resultCode == Activity.RESULT_CANCELED) UpiPaymentStatus.CANCELLED else UpiPaymentStatus.FAILED,
-                message = if (resultCode == Activity.RESULT_CANCELED) "Payment was cancelled." else "Payment failed. No successful payment was confirmed."
+
+                status =
+                    UpiPaymentStatus.INITIATED,
+
+                message =
+                    "Returned from UPI app. " +
+                    "Please confirm whether the payment was completed."
             )
         }
 
-        val responseStr = data.getStringExtra("response") ?: ""
-        val params = responseStr.split("&").mapNotNull {
-            val parts = it.split("=")
-            if (parts.size == 2) parts[0].lowercase() to parts[1] else null
-        }.toMap()
-        
-        val statusStr = params["status"]?.lowercase() ?: ""
-        
-        val status = when {
-            statusStr == "success" -> UpiPaymentStatus.SUCCESSFUL
-            statusStr == "submitted" -> UpiPaymentStatus.PENDING
-            statusStr == "failed" || statusStr == "failure" -> UpiPaymentStatus.FAILED
-            resultCode == Activity.RESULT_CANCELED -> UpiPaymentStatus.CANCELLED
-            else -> UpiPaymentStatus.FAILED
-        }
-        
-        val message = when (status) {
-            UpiPaymentStatus.SUCCESSFUL -> "Payment verified successfully."
-            UpiPaymentStatus.PENDING -> "Your payment was initiated. We're waiting for confirmation."
-            UpiPaymentStatus.CANCELLED -> "Payment was cancelled."
-            UpiPaymentStatus.FAILED -> "Payment failed. No successful payment was confirmed."
-            else -> "Payment initiated."
-        }
-        
-        val txnRef = params["txnref"] 
-            ?: data.extras?.getString("upitxnid")
-            ?: data.extras?.getString("txnRef")
-            ?: data.getStringExtra("upitxnid")
-            ?: data.getStringExtra("txnRef")
+        // --------------------------------------------------------
+        // UPI RESPONSE STRING
+        // --------------------------------------------------------
+
+        val responseStr =
+            data.getStringExtra("response")
+                ?: ""
+
+        val params =
+            responseStr
+                .split("&")
+                .mapNotNull {
+
+                    val parts =
+                        it.split(
+                            "=",
+                            limit = 2
+                        )
+
+                    if (
+                        parts.size == 2
+                    ) {
+
+                        parts[0]
+                            .lowercase(Locale.ROOT) to
+                                parts[1]
+
+                    } else {
+
+                        null
+                    }
+                }
+                .toMap()
+
+        val statusStr =
+            params["status"]
+                ?.lowercase(Locale.ROOT)
+                ?: ""
+
+        // --------------------------------------------------------
+        // STATUS
+        // --------------------------------------------------------
+
+        val status =
+            when {
+
+                statusStr == "success" ->
+                    UpiPaymentStatus.SUCCESSFUL
+
+                statusStr == "submitted" ->
+                    UpiPaymentStatus.PENDING
+
+                statusStr == "failed" ||
+                        statusStr == "failure" ->
+                    UpiPaymentStatus.FAILED
+
+                resultCode == Activity.RESULT_CANCELED ->
+                    UpiPaymentStatus.CANCELLED
+
+                else ->
+                    UpiPaymentStatus.INITIATED
+            }
+
+        // --------------------------------------------------------
+        // MESSAGE
+        // --------------------------------------------------------
+
+        val message =
+            when (status) {
+
+                UpiPaymentStatus.SUCCESSFUL ->
+                    "Payment verified successfully!"
+
+                UpiPaymentStatus.PENDING ->
+                    "Payment submitted and pending bank confirmation."
+
+                UpiPaymentStatus.FAILED ->
+                    "Payment was reported as failed by the UPI app."
+
+                UpiPaymentStatus.CANCELLED ->
+                    "Payment was cancelled."
+
+                else ->
+                    "Returned from UPI app. " +
+                    "Please confirm whether the payment was completed."
+            }
+
+        // --------------------------------------------------------
+        // TRANSACTION REFERENCE
+        // --------------------------------------------------------
+
+        val txnRef =
+            params["txnref"]
+                ?: data.extras
+                    ?.getString("upitxnid")
+                ?: data.extras
+                    ?.getString("txnRef")
+                ?: data.getStringExtra(
+                    "upitxnid"
+                )
+                ?: data.getStringExtra(
+                    "txnRef"
+                )
 
         return UpiIntentResult(
+
             launched = true,
-            cancelled = status == UpiPaymentStatus.CANCELLED,
-            returnedTxnRef = txnRef?.takeIf { it.isNotBlank() },
+
+            cancelled =
+                status ==
+                        UpiPaymentStatus.CANCELLED,
+
+            returnedTxnRef =
+                txnRef?.takeIf {
+                    it.isNotBlank()
+                },
+
             status = status,
+
             message = message
         )
     }
 
-    const val GOOGLE_PAY_PACKAGE = "com.google.android.apps.nbu.paisa.user"
-    const val PHONEPE_PACKAGE = "com.phonepe.app"
-    const val PAYTM_PACKAGE = "net.one97.paytm"
-    const val BHIM_PACKAGE = "in.org.npci.upiapp"
+    // ------------------------------------------------------------
+    // UPI APP PACKAGE NAMES
+    // ------------------------------------------------------------
 
-    fun isGooglePayInstalled(context: Context): Boolean {
+    const val GOOGLE_PAY_PACKAGE =
+        "com.google.android.apps.nbu.paisa.user"
+
+    const val PHONEPE_PACKAGE =
+        "com.phonepe.app"
+
+    const val PAYTM_PACKAGE =
+        "net.one97.paytm"
+
+    const val BHIM_PACKAGE =
+        "in.org.npci.upiapp"
+
+    // ------------------------------------------------------------
+    // GOOGLE PAY
+    // ------------------------------------------------------------
+
+    /**
+     * Checks whether Google Pay is installed.
+     */
+    fun isGooglePayInstalled(
+        context: Context
+    ): Boolean {
+
         return try {
-            context.packageManager.getPackageInfo(GOOGLE_PAY_PACKAGE, 0)
+
+            context.packageManager
+                .getPackageInfo(
+                    GOOGLE_PAY_PACKAGE,
+                    0
+                )
+
             true
+
         } catch (e: Exception) {
+
             false
         }
     }
 
     /**
-     * Builds a direct Intent for Google Pay (Tez) if installed, or falls back to system UPI chooser.
+     * Builds a Google Pay Intent.
+     *
+     * If Google Pay is installed:
+     *     Opens Google Pay directly.
+     *
+     * Otherwise:
+     *     Opens the normal UPI chooser.
      */
-    fun buildGooglePayIntent(info: UpiPaymentInfo, context: Context? = null): Intent {
-        val uri = buildPaymentUri(info)
-        val isGPayAvailable = context?.let { isGooglePayInstalled(it) } ?: true
+    fun buildGooglePayIntent(
+        info: UpiPaymentInfo,
+        context: Context? = null
+    ): Intent {
+
+        val uri =
+            buildPaymentUri(info)
+
+        val isGPayAvailable =
+            context?.let {
+                isGooglePayInstalled(it)
+            } ?: true
+
         return if (isGPayAvailable) {
-            Intent(Intent.ACTION_VIEW, uri).setPackage(GOOGLE_PAY_PACKAGE)
+
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            ).setPackage(
+                GOOGLE_PAY_PACKAGE
+            )
+
         } else {
-            Intent(Intent.ACTION_VIEW, uri)
+
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            )
         }
     }
 
-    /** Play Store fallback URI for a UPI app, when none is installed. */
-    fun marketUri(packageName: String): Uri =
-        Uri.parse("market://details?id=$packageName")
+    // ------------------------------------------------------------
+    // PHONEPE
+    // ------------------------------------------------------------
 
-    /** System settings page to grant access to the app (manifest <queries>). */
-    fun systemSettingsIntent(): Intent = Intent(Settings.ACTION_SETTINGS)
+    fun buildPhonePeIntent(
+        info: UpiPaymentInfo,
+        context: Context? = null
+    ): Intent {
+
+        val uri =
+            buildPaymentUri(info)
+
+        val isInstalled =
+            context?.let {
+
+                try {
+
+                    it.packageManager
+                        .getPackageInfo(
+                            PHONEPE_PACKAGE,
+                            0
+                        )
+
+                    true
+
+                } catch (e: Exception) {
+
+                    false
+                }
+
+            } ?: true
+
+        return if (isInstalled) {
+
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            ).setPackage(
+                PHONEPE_PACKAGE
+            )
+
+        } else {
+
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            )
+        }
+    }
+
+    // ------------------------------------------------------------
+    // PAYTM
+    // ------------------------------------------------------------
+
+    fun buildPaytmIntent(
+        info: UpiPaymentInfo,
+        context: Context? = null
+    ): Intent {
+
+        val uri =
+            buildPaymentUri(info)
+
+        val isInstalled =
+            context?.let {
+
+                try {
+
+                    it.packageManager
+                        .getPackageInfo(
+                            PAYTM_PACKAGE,
+                            0
+                        )
+
+                    true
+
+                } catch (e: Exception) {
+
+                    false
+                }
+
+            } ?: true
+
+        return if (isInstalled) {
+
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            ).setPackage(
+                PAYTM_PACKAGE
+            )
+
+        } else {
+
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            )
+        }
+    }
+
+    // ------------------------------------------------------------
+    // PLAY STORE FALLBACK
+    // ------------------------------------------------------------
+
+    /**
+     * Opens the Play Store page of a UPI app.
+     */
+    fun marketUri(
+        packageName: String
+    ): Uri {
+
+        return Uri.parse(
+            "market://details?id=$packageName"
+        )
+    }
+
+    // ------------------------------------------------------------
+    // SYSTEM SETTINGS
+    // ------------------------------------------------------------
+
+    fun systemSettingsIntent(): Intent {
+
+        return Intent(
+            Settings.ACTION_SETTINGS
+        )
+    }
+
+    // ------------------------------------------------------------
+    // DEBUG HELPER
+    // ------------------------------------------------------------
+
+    /**
+     * Useful for debugging.
+     *
+     * Example output:
+     *
+     * UPI URI:
+     * upi://pay?pa=xxx%40ybl&pn=ARUN&am=2.00&cu=INR
+     */
+    fun getDebugPaymentUri(
+        info: UpiPaymentInfo
+    ): String {
+
+        return buildPaymentUri(info).toString()
+    }
 }
 
+/**
+ * Represents an installed UPI application.
+ */
 data class UpiApp(
     val packageName: String,
     val label: String

@@ -12,11 +12,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -41,7 +44,7 @@ enum class ZenithNavTab(
     val testTag: String
 ) {
     HOME("Home", Icons.Default.Home, Icons.Outlined.Home, "nav_home"),
-    TRANSACTIONS("Activity", Icons.Default.ReceiptLong, Icons.Outlined.ReceiptLong, "nav_transactions"),
+    TRANSACTIONS("Activity", Icons.AutoMirrored.Filled.ReceiptLong, Icons.AutoMirrored.Outlined.ReceiptLong, "nav_transactions"),
     BUDGETS("Budgets", Icons.Default.PieChart, Icons.Outlined.PieChart, "nav_budgets"),
     ANALYTICS("Analytics", Icons.Default.BarChart, Icons.Outlined.BarChart, "nav_analytics"),
     PROFILE("Profile", Icons.Default.Person, Icons.Outlined.Person, "nav_profile")
@@ -57,29 +60,29 @@ fun ZenithFloatingNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = Color(0xF0080E1C),
+            shape = RoundedCornerShape(32.dp),
+            color = Color(0xF20B101D),
             border = BorderStroke(
                 1.dp,
                 Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.22f),
-                        Color.White.copy(alpha = 0.06f),
-                        Color.White.copy(alpha = 0.12f)
+                        Color.White.copy(alpha = 0.24f),
+                        Color.White.copy(alpha = 0.08f),
+                        Color(0xFF818CF8).copy(alpha = 0.20f)
                     )
                 )
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
+                .height(66.dp)
                 .shadow(
-                    elevation = 20.dp,
-                    shape = RoundedCornerShape(28.dp),
-                    spotColor = Color(0x99000000),
+                    elevation = 24.dp,
+                    shape = RoundedCornerShape(32.dp),
+                    spotColor = Color(0xB3000000),
                     ambientColor = Color(0x66000000)
                 )
         ) {
@@ -92,21 +95,21 @@ fun ZenithFloatingNavigationBar(
             ) {
                 ZenithNavTab.entries.forEachIndexed { index, tab ->
                     val isSelected = selectedTab == index
-                    val interactionSource = remember { MutableInteractionSource() }
+                    val interactionSource = remember(index) { MutableInteractionSource() }
 
                     val animatedScale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.05f else 1.0f,
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                        targetValue = if (isSelected) 1.06f else 1.0f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
                         label = "tab_scale"
                     )
 
                     val activeBgColor by animateColorAsState(
-                        targetValue = if (isSelected) EmeraldDarkPrimary.copy(alpha = 0.18f) else Color.Transparent,
+                        targetValue = if (isSelected) EmeraldDarkPrimary.copy(alpha = 0.20f) else Color.Transparent,
                         label = "tab_bg"
                     )
 
                     val activeContentColor by animateColorAsState(
-                        targetValue = if (isSelected) EmeraldDarkPrimary else SlateDarkTextSecondary,
+                        targetValue = if (isSelected) Color(0xFFA5B4FC) else SlateDarkTextSecondary,
                         label = "tab_content_color"
                     )
 
@@ -115,11 +118,11 @@ fun ZenithFloatingNavigationBar(
                             .weight(1f)
                             .fillMaxHeight()
                             .scale(animatedScale)
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(22.dp))
                             .background(activeBgColor)
                             .clickable(
                                 interactionSource = interactionSource,
-                                indication = null
+                                indication = ripple(bounded = true, radius = 28.dp)
                             ) {
                                 onTabSelected(index)
                             }
@@ -134,9 +137,9 @@ fun ZenithFloatingNavigationBar(
                                 imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                                 contentDescription = tab.title,
                                 tint = activeContentColor,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(21.dp)
                             )
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = tab.title,
                                 fontSize = 10.5.sp,

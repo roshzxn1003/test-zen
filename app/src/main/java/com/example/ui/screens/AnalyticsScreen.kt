@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.models.FamilyMemberEntity
 import com.example.data.models.FinanceScope
 import com.example.data.models.TransactionType
+import com.example.ui.components.CleanCard
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.CashFlowUiState
@@ -71,6 +72,7 @@ fun AnalyticsScreen(
                 cal.set(Calendar.HOUR_OF_DAY, 0)
                 cal.set(Calendar.MINUTE, 0)
                 cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
                 val startOfMonth = cal.timeInMillis
                 state.transactions.filter { it.dateMillis >= startOfMonth }
             }
@@ -157,18 +159,18 @@ fun AnalyticsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .background(SlateDarkSurfaceVariant)
-                    .padding(3.dp),
+                    .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                AnalyticsTimeRange.values().forEach { range ->
+                AnalyticsTimeRange.entries.forEach { range ->
                     val isSelected = selectedTimeRange == range
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .height(34.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(
                                 if (isSelected) EmeraldDarkPrimary else Color.Transparent
                             )
@@ -179,7 +181,7 @@ fun AnalyticsScreen(
                             text = range.label,
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) Color.Black else SlateDarkTextSecondary,
+                            color = if (isSelected) Color.White else SlateDarkTextSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -193,9 +195,9 @@ fun AnalyticsScreen(
         // --- 2. 4-METRIC SUMMARY CARDS GRID ---
         if (filteredTransactions.isEmpty()) {
             item {
-                GlassCard(
+                CleanCard(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    backgroundColor = GlassCardBg
+                    backgroundColor = SlateDarkSurface.copy(alpha = 0.85f)
                 ) {
                     Column(
                         modifier = Modifier
@@ -232,21 +234,30 @@ fun AnalyticsScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // Income Summary Card
-                    GlassCard(
+                    CleanCard(
                         modifier = Modifier.weight(1f),
-                        backgroundColor = GlassCardBg
+                        backgroundColor = SlateDarkSurface.copy(alpha = 0.85f),
+                        contentPadding = PaddingValues(14.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ArrowDownward, contentDescription = null, tint = IncomeGreen, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Income", fontSize = 11.sp, color = SlateDarkTextSecondary)
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(PastelGreenContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.ArrowDownward, contentDescription = null, tint = PastelGreen, modifier = Modifier.size(14.dp))
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Income", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = SlateDarkTextSecondary)
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             "+${state.currencySymbol}${String.format(Locale.US, "%,.0f", rangeIncome)}",
                             fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = IncomeGreen,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = PastelGreen,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -499,17 +510,23 @@ fun AnalyticsScreen(
                             ) {
                                 Canvas(modifier = Modifier.size(130.dp)) {
                                     var startAngle = -90f
+                                    val isSingleEntry = expensesByCategory.size == 1
                                     expensesByCategory.entries.forEachIndexed { idx, entry ->
-                                        val sweep = ((entry.value / totalCatExpense) * 360f).toFloat()
+                                        val sweep = ((entry.value / totalCatExpense) * 360f).toFloat().coerceIn(0f, 360f)
                                         val color = palette[idx % palette.size]
 
-                                        drawArc(
-                                            color = color,
-                                            startAngle = startAngle,
-                                            sweepAngle = sweep,
-                                            useCenter = false,
-                                            style = Stroke(width = 18.dp.toPx(), cap = StrokeCap.Round)
-                                        )
+                                        if (sweep > 0f) {
+                                            drawArc(
+                                                color = color,
+                                                startAngle = startAngle,
+                                                sweepAngle = sweep,
+                                                useCenter = false,
+                                                style = Stroke(
+                                                    width = 18.dp.toPx(),
+                                                    cap = if (isSingleEntry) StrokeCap.Butt else StrokeCap.Round
+                                                )
+                                            )
+                                        }
                                         startAngle += sweep
                                     }
                                 }

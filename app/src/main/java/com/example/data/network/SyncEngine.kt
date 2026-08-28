@@ -96,22 +96,25 @@ class SyncEngine(
             val pendingCreates = familyDao.getPendingCreates()
             for (fam in pendingCreates) {
                 val dto = FamilyDto(
-                    id = fam.id,
+                    id = fam.serverId ?: fam.id,
                     name = fam.name,
                     createdBy = fam.createdByUserId.ifBlank { userId },
-                    inviteCode = fam.inviteCode,
+                    inviteCode = fam.inviteCode.ifBlank { fam.id },
                     createdAt = Instant.ofEpochMilli(fam.createdAt).toString()
                 )
                 SupabaseClientConfig.supabase.postgrest["families"].upsert(dto)
-                familyDao.updateFamily(fam.copy(serverId = fam.id, syncStatus = "SYNCED"))
+                familyDao.updateFamily(fam.copy(serverId = dto.id, syncStatus = "SYNCED"))
             }
 
             val pendingDeletes = familyDao.getPendingDeletes()
             for (fam in pendingDeletes) {
-                fam.serverId?.let { sId ->
+                val sId = fam.serverId ?: fam.id
+                try {
                     SupabaseClientConfig.supabase.postgrest["families"].delete {
                         filter { eq("id", sId) }
                     }
+                } catch (e: Exception) {
+                    Log.e("SyncEngine", "Error deleting remote family", e)
                 }
                 familyDao.deleteFamilyById(fam.id)
             }
@@ -122,34 +125,12 @@ class SyncEngine(
 
     private suspend fun pullRemoteFamilies(userId: String) {
         try {
-            val memberDao = familyMemberDao ?: return
-            
-            // Get family IDs the user belongs to locally
-            val localFamiliesFlow = familyDao.getAllFamiliesForUser(userId)
-            val localFamilies = localFamiliesFlow.firstOrNull() ?: emptyList()
-            
-            val familyIdsToFetch = localFamilies.map { it.id }.toMutableList()
-            
-            // Add any families from the local members we just pulled
-            val localMembers = memberDao.getMemberByUserId(userId).firstOrNull() ?: emptyList()
-            familyIdsToFetch.addAll(localMembers.map { it.familyId })
-            
-            val distinctIds = familyIdsToFetch.distinct()
-            
-            if (distinctIds.isEmpty()) return
-
-            val remoteFamilies = mutableListOf<FamilyDto>()
-            distinctIds.forEach { fId ->
-                val fetched = SupabaseClientConfig.supabase.postgrest["families"]
-                    .select(columns = Columns.ALL) {
-                        filter { eq("id", fId) }
-                    }
-                    .decodeList<FamilyDto>()
-                remoteFamilies.addAll(fetched)
-            }
+            val remoteFamilies = SupabaseClientConfig.supabase.postgrest["families"]
+                .select(columns = Columns.ALL)
+                .decodeList<FamilyDto>()
 
             for (remote in remoteFamilies) {
-                val existing = familyDao.getFamilyById(remote.id)
+                val existing = familyDao.getFamilyByServerId(remote.id) ?: familyDao.getFamilyById(remote.id)
                 val createdAtMillis = try {
                     remote.createdAt?.let { Instant.parse(it).toEpochMilli() } ?: System.currentTimeMillis()
                 } catch (e: Exception) {
@@ -162,7 +143,7 @@ class SyncEngine(
                         name = remote.name,
                         createdByUserId = remote.createdBy,
                         createdAt = createdAtMillis,
-                        inviteCode = remote.inviteCode ?: "",
+                        inviteCode = remote.inviteCode ?: remote.id,
                         serverId = remote.id,
                         syncStatus = "SYNCED"
                     )
@@ -171,6 +152,7 @@ class SyncEngine(
                     familyDao.updateFamily(existing.copy(
                         name = remote.name,
                         inviteCode = remote.inviteCode ?: existing.inviteCode,
+                        serverId = remote.id,
                         syncStatus = "SYNCED"
                     ))
                 }
@@ -189,11 +171,40 @@ class SyncEngine(
                     id = mem.serverId ?: mem.id,
                     familyId = mem.familyId,
                     userId = mem.userId.ifBlank { userId },
+                    name = mem.name,
                     role = mem.role.name,
                     joinedAt = Instant.ofEpochMilli(mem.joinedAt).toString()
                 )
                 SupabaseClientConfig.supabase.postgrest["family_members"].upsert(dto)
                 memberDao.updateMember(mem.copy(serverId = dto.id, syncStatus = "SYNCED"))
+            }
+
+            val updates = memberDao.getPendingUpdates()
+            for (mem in updates) {
+                val serverId = mem.serverId ?: mem.id
+                val dto = FamilyMemberDto(
+                    id = serverId,
+                    familyId = mem.familyId,
+                    userId = mem.userId.ifBlank { userId },
+                    name = mem.name,
+                    role = mem.role.name,
+                    joinedAt = Instant.ofEpochMilli(mem.joinedAt).toString()
+                )
+                SupabaseClientConfig.supabase.postgrest["family_members"].upsert(dto)
+                memberDao.updateMember(mem.copy(syncStatus = "SYNCED"))
+            }
+
+            val deletes = memberDao.getPendingDeletes()
+            for (mem in deletes) {
+                val serverId = mem.serverId ?: mem.id
+                try {
+                    SupabaseClientConfig.supabase.postgrest["family_members"].delete {
+                        filter { eq("id", serverId) }
+                    }
+                } catch (e: Exception) {
+                    Log.e("SyncEngine", "Error deleting remote member", e)
+                }
+                memberDao.deleteMemberById(mem.id)
             }
         } catch (e: Exception) {
             Log.e("SyncEngine", "Error pushing family members", e)
@@ -209,24 +220,37 @@ class SyncEngine(
 
             for (remote in remoteMembers) {
                 val existing = memberDao.getMemberByServerId(remote.id)
+                    ?: memberDao.getMemberByFamilyAndUser(remote.familyId, remote.userId)
+                    ?: memberDao.getMemberByServerId(remote.id)
+
                 val joinedAtMillis = try {
                     remote.joinedAt?.let { Instant.parse(it).toEpochMilli() } ?: System.currentTimeMillis()
                 } catch (e: Exception) {
                     System.currentTimeMillis()
                 }
 
+                val memberName = remote.name?.takeIf { it.isNotBlank() } ?: "Family Member"
+                val memberRole = try { FamilyRole.valueOf(remote.role) } catch (e: Exception) { FamilyRole.MEMBER }
+
                 if (existing == null) {
                     val newMember = FamilyMemberEntity(
                         id = remote.id,
                         familyId = remote.familyId,
                         userId = remote.userId,
-                        name = "Family Member",
-                        role = try { FamilyRole.valueOf(remote.role) } catch (e: Exception) { FamilyRole.MEMBER },
+                        name = memberName,
+                        role = memberRole,
                         joinedAt = joinedAtMillis,
                         serverId = remote.id,
                         syncStatus = "SYNCED"
                     )
                     memberDao.insertMember(newMember)
+                } else {
+                    memberDao.updateMember(existing.copy(
+                        name = memberName,
+                        role = memberRole,
+                        serverId = remote.id,
+                        syncStatus = "SYNCED"
+                    ))
                 }
             }
         } catch (e: Exception) {
@@ -393,11 +417,31 @@ class SyncEngine(
                 bDao.updateBudget(budget.copy(serverId = dto.id, syncStatus = "SYNCED"))
             }
 
+            val updates = bDao.getPendingUpdates()
+            for (budget in updates) {
+                val serverId = budget.serverId ?: UUID.randomUUID().toString()
+                val dto = BudgetDto(
+                    id = serverId,
+                    userId = userId,
+                    familyId = budget.familyId,
+                    financeScope = budget.financeScope.name,
+                    name = budget.categoryName,
+                    amount = budget.monthlyLimit,
+                    periodType = budget.periodType
+                )
+                SupabaseClientConfig.supabase.postgrest["budgets"].upsert(dto)
+                bDao.updateBudget(budget.copy(serverId = serverId, syncStatus = "SYNCED"))
+            }
+
             val deletes = bDao.getPendingDeletes()
             for (budget in deletes) {
                 budget.serverId?.let { sId ->
-                    SupabaseClientConfig.supabase.postgrest["budgets"].delete {
-                        filter { eq("id", sId) }
+                    try {
+                        SupabaseClientConfig.supabase.postgrest["budgets"].delete {
+                            filter { eq("id", sId) }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("SyncEngine", "Error deleting remote budget", e)
                     }
                 }
                 bDao.deleteBudgetById(budget.id)
@@ -427,6 +471,17 @@ class SyncEngine(
                         syncStatus = "SYNCED"
                     )
                     bDao.insertOrUpdateBudget(newBudget)
+                } else if (existing != null) {
+                    if (remote.isDeleted) {
+                        bDao.deleteBudgetById(existing.id)
+                    } else if (existing.syncStatus == "SYNCED") {
+                        bDao.updateBudget(existing.copy(
+                            categoryName = remote.name,
+                            monthlyLimit = remote.amount,
+                            periodType = remote.periodType,
+                            familyId = remote.familyId
+                        ))
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -452,11 +507,31 @@ class SyncEngine(
                 gDao.updateGoal(goal.copy(serverId = dto.id, syncStatus = "SYNCED"))
             }
 
+            val updates = gDao.getPendingUpdates()
+            for (goal in updates) {
+                val serverId = goal.serverId ?: UUID.randomUUID().toString()
+                val dto = SavingsGoalDto(
+                    id = serverId,
+                    userId = userId,
+                    familyId = goal.familyId,
+                    financeScope = goal.financeScope.name,
+                    name = goal.title,
+                    targetAmount = goal.targetAmount,
+                    currentAmount = goal.currentAmount
+                )
+                SupabaseClientConfig.supabase.postgrest["savings_goals"].upsert(dto)
+                gDao.updateGoal(goal.copy(serverId = serverId, syncStatus = "SYNCED"))
+            }
+
             val deletes = gDao.getPendingDeletes()
             for (goal in deletes) {
                 goal.serverId?.let { sId ->
-                    SupabaseClientConfig.supabase.postgrest["savings_goals"].delete {
-                        filter { eq("id", sId) }
+                    try {
+                        SupabaseClientConfig.supabase.postgrest["savings_goals"].delete {
+                            filter { eq("id", sId) }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("SyncEngine", "Error deleting remote savings goal", e)
                     }
                 }
                 gDao.deleteGoalById(goal.id)
@@ -486,6 +561,17 @@ class SyncEngine(
                         syncStatus = "SYNCED"
                     )
                     gDao.insertOrUpdateGoal(newGoal)
+                } else if (existing != null) {
+                    if (remote.isDeleted) {
+                        gDao.deleteGoalById(existing.id)
+                    } else if (existing.syncStatus == "SYNCED") {
+                        gDao.updateGoal(existing.copy(
+                            title = remote.name,
+                            targetAmount = remote.targetAmount,
+                            currentAmount = remote.currentAmount,
+                            familyId = remote.familyId
+                        ))
+                    }
                 }
             }
         } catch (e: Exception) {

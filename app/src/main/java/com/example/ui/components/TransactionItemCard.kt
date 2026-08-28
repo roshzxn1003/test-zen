@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -42,13 +43,13 @@ fun TransactionItemCard(
     val hasReceiptAttached = !transaction.receiptImageUri.isNullOrBlank() || transaction.note.contains("Receipt", ignoreCase = true)
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = GlassCardBg,
+        shape = RoundedCornerShape(20.dp),
+        color = SlateDarkSurface.copy(alpha = 0.85f),
         border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor),
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(20.dp))
             .combinedClickable(
                 onClick = { onClick?.invoke(transaction) },
                 onLongClick = { onLongClick?.invoke(transaction) }
@@ -61,26 +62,26 @@ fun TransactionItemCard(
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Category Icon Badge
+            // Category Icon Badge (Pastel container)
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(
-                        if (isExpense) ExpenseRed.copy(alpha = 0.15f) else IncomeGreen.copy(alpha = 0.15f)
+                        if (isExpense) PastelRoseContainer else PastelGreenContainer
                     )
                     .border(
                         1.dp,
-                        if (isExpense) ExpenseRed.copy(alpha = 0.35f) else IncomeGreen.copy(alpha = 0.35f),
-                        CircleShape
+                        if (isExpense) PastelRose.copy(alpha = 0.35f) else PastelGreen.copy(alpha = 0.35f),
+                        RoundedCornerShape(14.dp)
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = transaction.category,
-                    tint = if (isExpense) ExpenseRed else IncomeGreen,
-                    modifier = Modifier.size(20.dp)
+                    tint = if (isExpense) PastelRose else PastelGreen,
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
@@ -95,7 +96,7 @@ fun TransactionItemCard(
                     Text(
                         text = transaction.title,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         color = SlateDarkTextPrimary,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -105,19 +106,22 @@ fun TransactionItemCard(
                     if (hasReceiptAttached) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF8B5CF6).copy(alpha = 0.15f)
+                            shape = RoundedCornerShape(6.dp),
+                            color = PastelPurpleContainer,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, PastelPurple.copy(alpha = 0.3f))
                         ) {
                             Text(
-                                text = "🧾",
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                text = "🧾 Receipt",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PastelPurple,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -125,14 +129,14 @@ fun TransactionItemCard(
                 ) {
                     // Category Badge Pill
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = SlateDarkSurfaceVariant,
                         modifier = Modifier.padding(end = 6.dp)
                     ) {
                         Text(
                             text = transaction.category,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.SemiBold,
                             color = SlateDarkTextSecondary,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             maxLines = 1,
@@ -153,7 +157,7 @@ fun TransactionItemCard(
                             text = " • 👤 $creatorName",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
-                            color = GoldAccent,
+                            color = PastelCyan,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
@@ -161,18 +165,18 @@ fun TransactionItemCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             // Amount, Sync Status, and Date
             Column(
                 horizontalAlignment = Alignment.End,
-                modifier = Modifier.widthIn(min = 60.dp)
+                modifier = Modifier.widthIn(min = 65.dp)
             ) {
                 Text(
                     text = "${if (isExpense) "-" else "+"}$currencySymbol${String.format(Locale.US, "%,.2f", transaction.amount)}",
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isExpense) ExpenseRed else IncomeGreen,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isExpense) PastelRose else PastelGreen,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
@@ -188,7 +192,8 @@ fun TransactionItemCard(
                     Text(
                         text = formattedDate,
                         fontSize = 11.sp,
-                        color = SlateDarkTextSecondary,
+                        fontWeight = FontWeight.Medium,
+                        color = SlateDarkTextMuted,
                         maxLines = 1
                     )
                 }
@@ -223,7 +228,7 @@ private fun getCategoryIcon(iconName: String): ImageVector {
         "movie", "entertainment" -> Icons.Default.Movie
         "medical_services", "health", "healthcare" -> Icons.Default.MedicalServices
         "account_balance", "salary", "income", "payments" -> Icons.Default.AccountBalance
-        "trending_up", "investments", "investment" -> Icons.Default.TrendingUp
+        "trending_up", "investments", "investment" -> Icons.AutoMirrored.Filled.TrendingUp
         else -> Icons.Default.Receipt
     }
 }

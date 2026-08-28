@@ -101,10 +101,11 @@ fun UpiQrScanModal(
         } else {
             // Check if it's a bare UPI ID or raw text with VPA
             if (raw.contains("@")) {
-                val candidateVpa = raw.split(":", " ", "?").firstOrNull { it.contains("@") && UpiService.isValidVpa(it) }
+                val candidateVpa = raw.split(Regex("[\\s:?&=;,/|]")).firstOrNull { it.contains("@") && UpiService.isValidVpa(it.trim()) }
                 if (candidateVpa != null) {
-                    scannedInfo = UpiPaymentInfo(payeeAddress = candidateVpa, payeeName = "UPI Merchant")
-                    editVpa = candidateVpa
+                    val cleanVpa = candidateVpa.trim()
+                    scannedInfo = UpiPaymentInfo(payeeAddress = cleanVpa, payeeName = "UPI Merchant")
+                    editVpa = cleanVpa
                     editMerchant = "UPI Merchant"
                     editAmount = ""
                     scanFailed = false
@@ -114,7 +115,7 @@ fun UpiQrScanModal(
             }
             scanFailed = true
             failureReason = "Scanned QR does not contain valid UPI payment information."
-            Toast.makeText(context, "Not a UPI QR code. Try a UPI payment QR.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Not a recognized UPI QR code. Please scan a standard UPI QR.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -135,7 +136,7 @@ fun UpiQrScanModal(
                 val inputImage = InputImage.fromBitmap(bitmap, 0)
                 val fallbackScanner = BarcodeScanning.getClient(
                     BarcodeScannerOptions.Builder()
-                        
+                        .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                         .build()
                 )
                 fallbackScanner.process(inputImage)

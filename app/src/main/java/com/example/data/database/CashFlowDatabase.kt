@@ -13,6 +13,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `ledger_transactions` (`transactionId` TEXT NOT NULL, `familyId` TEXT NOT NULL, `title` TEXT NOT NULL, `description` TEXT NOT NULL, `amount` REAL NOT NULL, `category` TEXT NOT NULL, `categoryIcon` TEXT NOT NULL, `type` TEXT NOT NULL, `paymentMethod` TEXT NOT NULL, `paidByMemberId` TEXT NOT NULL, `paidByName` TEXT NOT NULL, `dateMillis` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `createdBy` TEXT NOT NULL, `lastModifiedBy` TEXT NOT NULL, `isDeleted` INTEGER NOT NULL, `syncStatus` TEXT NOT NULL DEFAULT 'SYNCED', `syncVersion` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`transactionId`))"
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `family_vaults` (`familyId` TEXT NOT NULL, `familyName` TEXT NOT NULL, `inviteCode` TEXT NOT NULL, `createdBy` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isDeleted` INTEGER NOT NULL, `syncStatus` TEXT NOT NULL DEFAULT 'SYNCED', PRIMARY KEY(`familyId`))"
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `family_vault_members` (`memberId` TEXT NOT NULL, `familyId` TEXT NOT NULL, `userId` TEXT NOT NULL, `name` TEXT NOT NULL, `role` TEXT NOT NULL, `totalPaid` REAL NOT NULL DEFAULT 0.0, `transactionCount` INTEGER NOT NULL DEFAULT 0, `joinedAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `isDeleted` INTEGER NOT NULL, `syncStatus` TEXT NOT NULL DEFAULT 'SYNCED', PRIMARY KEY(`memberId`))"
+        )
+    }
+}
+
 val MIGRATION_7_8 = object : Migration(7, 8) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `transactions` ADD COLUMN `upiId` TEXT")
@@ -88,9 +102,12 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         FamilyMemberEntity::class,
         UserProfileEntity::class,
         ReceiptEntity::class,
-        ReceiptItemEntity::class
+        ReceiptItemEntity::class,
+        com.example.data.familyledger.LedgerTransaction::class,
+        com.example.data.familyledger.FamilyVault::class,
+        com.example.data.familyledger.FamilyVaultMember::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class CashFlowDatabase : RoomDatabase() {
@@ -103,6 +120,7 @@ abstract class CashFlowDatabase : RoomDatabase() {
     abstract fun familyMemberDao(): FamilyMemberDao
     abstract fun userProfileDao(): UserProfileDao
     abstract fun receiptDao(): ReceiptDao
+    abstract fun familyLedgerDao(): com.example.data.familyledger.FamilyLedgerDao
 
     companion object {
         @Volatile
@@ -115,7 +133,7 @@ abstract class CashFlowDatabase : RoomDatabase() {
                     CashFlowDatabase::class.java,
                     "cashflow_database"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .fallbackToDestructiveMigration(true)
                     .addCallback(DatabaseCallback(context.applicationContext))
                     .build()

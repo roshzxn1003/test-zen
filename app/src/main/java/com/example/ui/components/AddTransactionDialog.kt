@@ -276,15 +276,16 @@ fun AddTransactionDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(SlateDarkSurfaceVariant, RoundedCornerShape(14.dp))
+                        .background(SlateDarkSurfaceVariant, RoundedCornerShape(16.dp))
                         .padding(4.dp)
                 ) {
                     val isExpense = selectedType == TransactionType.EXPENSE
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp)
-                            .background(if (isExpense) ExpenseRed else Color.Transparent, RoundedCornerShape(10.dp))
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isExpense) PastelRose else Color.Transparent)
                             .clickable { selectedType = TransactionType.EXPENSE }
                             .testTag("type_expense_button"),
                         contentAlignment = Alignment.Center
@@ -296,8 +297,9 @@ fun AddTransactionDialog(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp)
-                            .background(if (isIncome) IncomeGreen else Color.Transparent, RoundedCornerShape(10.dp))
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isIncome) PastelGreen else Color.Transparent)
                             .clickable {
                                 selectedType = TransactionType.INCOME
                                 if (selectedCategory == "Food & Dining") selectedCategory = "Salary & Income"
@@ -305,7 +307,7 @@ fun AddTransactionDialog(
                             .testTag("type_income_button"),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Income", fontWeight = FontWeight.Bold, color = if (isIncome) Color.White else SlateDarkTextSecondary, fontSize = 13.sp)
+                        Text("Income", fontWeight = FontWeight.Bold, color = if (isIncome) Color.Black else SlateDarkTextSecondary, fontSize = 13.sp)
                     }
                 }
 
@@ -325,7 +327,7 @@ fun AddTransactionDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = if (selectedType == TransactionType.EXPENSE) ExpenseRed else IncomeGreen,
+                        focusedBorderColor = if (selectedType == TransactionType.EXPENSE) PastelRose else PastelGreen,
                         unfocusedBorderColor = GlassBorderColor,
                         focusedContainerColor = SlateDarkSurfaceVariant,
                         unfocusedContainerColor = SlateDarkSurfaceVariant,
@@ -334,7 +336,6 @@ fun AddTransactionDialog(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
                         .testTag("add_transaction_amount_field"),
                     singleLine = true
                 )
@@ -358,7 +359,6 @@ fun AddTransactionDialog(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
                         .testTag("add_transaction_title_field"),
                     singleLine = true
                 )
@@ -446,9 +446,7 @@ fun AddTransactionDialog(
                         unfocusedTextColor = SlateDarkTextPrimary
                     ),
                     singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(22.dp))

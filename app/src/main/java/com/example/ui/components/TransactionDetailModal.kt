@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -276,7 +277,7 @@ fun TransactionDetailModal(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
+                                        Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = "ATTACHED RECEIPT",
@@ -1165,7 +1166,7 @@ private fun getCategoryDetailIcon(iconName: String): ImageVector {
         "movie", "entertainment" -> Icons.Default.Movie
         "medical_services", "health", "healthcare" -> Icons.Default.MedicalServices
         "account_balance", "salary", "income", "payments" -> Icons.Default.AccountBalance
-        "trending_up", "investments", "investment" -> Icons.Default.TrendingUp
+        "trending_up", "investments", "investment" -> Icons.AutoMirrored.Filled.TrendingUp
         else -> Icons.Default.Receipt
     }
 }
