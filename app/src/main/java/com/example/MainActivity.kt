@@ -26,11 +26,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.models.FinanceScope
+import com.example.data.models.TransactionType
 import com.example.ui.components.AddTransactionDialog
 import com.example.ui.components.FamilyMembersDialog
 import com.example.ui.components.ReceiptScanModal
 import com.example.ui.components.UPIPaySheet
-import com.example.ui.components.UpiQrScanModal
 import com.example.ui.components.VoiceAiModal
 import com.example.ui.components.ZenithFloatingNavigationBar
 import com.example.ui.screens.*
@@ -136,25 +136,18 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
     val familyLedgerUiState by familyLedgerViewModel.uiState.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val currentFinanceScope by viewModel.currentFinanceScope.collectAsStateWithLifecycle()
+    val syncUiState by viewModel.syncUiState.collectAsStateWithLifecycle()
     val activeFamilyId by viewModel.activeFamilyId.collectAsStateWithLifecycle()
     val activeFamily by viewModel.activeFamily.collectAsStateWithLifecycle(initialValue = null)
     val familyMembers by viewModel.familyMembers.collectAsStateWithLifecycle(initialValue = emptyList())
     var showAddDialog by remember { mutableStateOf(false) }
     var showFamilyMembersDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val totalIncome = remember(uiState.transactions) { viewModel.getTotalIncome(uiState.transactions) }
     val totalExpense = remember(uiState.transactions) { viewModel.getTotalExpense(uiState.transactions) }
     val netBalance = remember(uiState.transactions) { viewModel.getNetBalance(uiState.transactions) }
-
-    // If in Family Ledger Scope, render the full redesigned FamilyLedger module!
-    if (currentFinanceScope == FinanceScope.FAMILY) {
-        com.example.ui.familyledger.FamilyLedgerScreen(
-            viewModel = familyLedgerViewModel,
-            state = familyLedgerUiState,
-            onBackToPersonal = { viewModel.setFinanceScope(FinanceScope.PERSONAL) }
-        )
-        return
-    }
+    val familySettlementSummary by viewModel.familySettlementSummary.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = Modifier
@@ -163,21 +156,26 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
         containerColor = Color.Transparent,
         floatingActionButtonPosition = FabPosition.End,
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                modifier = Modifier
-                    .padding(end = 4.dp, bottom = 6.dp)
-                    .testTag("fab_add_transaction"),
-                shape = RoundedCornerShape(18.dp),
-                containerColor = EmeraldDarkPrimary,
-                contentColor = Color.White,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Add Transaction",
-                    modifier = Modifier.size(28.dp)
-                )
+            if (uiState.selectedTab == 0 || uiState.selectedTab == 1) {
+                FloatingActionButton(
+                    onClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        showAddDialog = true
+                    },
+                    modifier = Modifier
+                        .padding(end = 4.dp, bottom = 6.dp)
+                        .testTag("fab_add_transaction"),
+                    shape = RoundedCornerShape(18.dp),
+                    containerColor = EmeraldDarkPrimary,
+                    contentColor = Color.White,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Transaction",
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         },
         bottomBar = {
@@ -212,6 +210,7 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                         totalExpense = totalExpense,
                         netBalance = netBalance,
                         currentFinanceScope = currentFinanceScope,
+                        familySettlementSummary = familySettlementSummary,
                         onScopeChange = { scope ->
                             viewModel.setFinanceScope(scope)
                         },
@@ -219,12 +218,25 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                         onOpenVoiceAssistant = { viewModel.openVoiceDialog() },
                         onOpenReceiptScanner = { viewModel.openReceiptDialog() },
                         onOpenUpiPay = { viewModel.openUpiDialog() },
-                        onOpenUpiScan = { viewModel.openUpiScanDialog() },
+                        onOpenUpiScanner = { viewModel.openUpiScanDialog() },
+                        familyName = activeFamily?.name ?: "Family Vault",
+                        inviteCode = activeFamily?.inviteCode?.takeIf { it.isNotBlank() } ?: activeFamily?.id ?: activeFamilyId ?: "",
                         onDeleteTransaction = { tx -> viewModel.deleteTransactionWithReceipt(tx) },
                         onUpdateTransaction = { tx -> viewModel.updateTransaction(tx) },
                         onManageFamilyMembers = { showFamilyMembersDialog = true },
                         onNavigateToActivity = { viewModel.setTab(1) },
-                        onNavigateToProfile = { viewModel.setTab(4) }
+                        onNavigateToProfile = { viewModel.setTab(4) },
+                        currentUserName = viewModel.currentUserName,
+                        syncUiState = syncUiState,
+                        onSyncNow = {
+                            viewModel.syncNow { success ->
+                                android.widget.Toast.makeText(
+                                    context,
+                                    if (success) "Cloud sync completed!" else "Offline / sync complete.",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                     )
                     1 -> TransactionsScreen(
                         state = uiState,
@@ -279,14 +291,15 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
             FamilyMembersDialog(
                 familyMembers = familyMembers,
                 familyName = activeFamily?.name ?: "Family Vault",
-                familyId = activeFamily?.inviteCode?.takeIf { it.isNotBlank() } ?: activeFamily?.id ?: activeFamilyId ?: "",
+                familyId = activeFamily?.id ?: activeFamilyId ?: "",
+                inviteCode = activeFamily?.inviteCode ?: "",
                 onDismiss = { showFamilyMembersDialog = false },
                 onAddMember = { name, role ->
                     viewModel.addFamilyMember(name, role)
                 },
                 onJoinFamily = { code ->
-                    viewModel.joinFamily(code) { success, msg ->
-                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    viewModel.handleScannedVaultQr(code) { success, msg ->
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                     }
                 },
                 onSyncNow = {
@@ -296,6 +309,20 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                             if (success) "Family ledger synchronized!" else "Sync complete (offline mode).",
                             android.widget.Toast.LENGTH_SHORT
                         ).show()
+                    }
+                },
+                onExportVaultFile = {
+                    viewModel.exportVaultSyncFile(context) { shareIntent ->
+                        if (shareIntent != null) {
+                            context.startActivity(shareIntent)
+                        } else {
+                            android.widget.Toast.makeText(context, "Could not export vault file.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onImportVaultFile = { jsonPayload ->
+                    viewModel.importVaultSyncFile(jsonPayload) { success, msg ->
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                     }
                 }
             )
@@ -318,8 +345,36 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
             )
         }
 
+        if (uiState.isUpiDialogShowing) {
+            UPIPaySheet(
+                currencySymbol = uiState.currencySymbol,
+                currentFinanceScope = currentFinanceScope,
+                currentUserId = viewModel.currentUserId,
+                currentUserName = viewModel.currentUserName,
+                familyName = activeFamily?.name ?: "Family Vault",
+                familyMembers = familyMembers,
+                onDismiss = { viewModel.closeUpiDialog() },
+                onOpenScanQr = {
+                    viewModel.closeUpiDialog()
+                    viewModel.openUpiScanDialog()
+                },
+                onSaveTransaction = { title, amount, category, scope, memberId, upiId, upiTransactionId ->
+                    viewModel.addUpiTransaction(
+                        title = title,
+                        amount = amount,
+                        category = category,
+                        scope = scope,
+                        memberId = memberId,
+                        upiId = upiId,
+                        upiTransactionId = upiTransactionId
+                    )
+                    viewModel.closeUpiDialog()
+                }
+            )
+        }
+
         if (uiState.isUpiScanDialogShowing) {
-            UpiQrScanModal(
+            com.example.ui.components.UpiQrScanModal(
                 currencySymbol = uiState.currencySymbol,
                 currentFinanceScope = currentFinanceScope,
                 currentUserName = viewModel.currentUserName,
@@ -341,17 +396,14 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
             )
         }
 
-        if (uiState.isUpiDialogShowing) {
-            UPIPaySheet(
+        uiState.detectedUpiPayment?.let { detectedPayment ->
+            com.example.ui.components.UpiPaymentDetectedModal(
+                payment = detectedPayment,
                 currencySymbol = uiState.currencySymbol,
-                currentFinanceScope = currentFinanceScope,
-                currentUserId = viewModel.currentUserId,
-                currentUserName = viewModel.currentUserName,
-                familyName = activeFamily?.name ?: "Family Vault",
                 familyMembers = familyMembers,
-                onDismiss = { viewModel.closeUpiDialog() },
-                onSaveTransaction = { title, amount, category, scope, memberId, upiId, upiTransactionId ->
-                    viewModel.addUpiTransaction(
+                onDismiss = { viewModel.dismissDetectedUpiPayment() },
+                onConfirmSave = { title, amount, category, scope, memberId, upiId, upiTransactionId ->
+                    viewModel.confirmDetectedUpiPayment(
                         title = title,
                         amount = amount,
                         category = category,
@@ -360,20 +412,30 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                         upiId = upiId,
                         upiTransactionId = upiTransactionId
                     )
-                    viewModel.closeUpiDialog()
                 }
             )
         }
 
         if (uiState.isVoiceDialogShowing) {
-            VoiceAiModal(                isProcessing = uiState.isVoiceProcessing,
+            VoiceAiModal(
+                isProcessing = uiState.isVoiceProcessing,
                 parsedExpense = uiState.parsedVoiceExpense,
+                voiceChatMessages = uiState.voiceChatMessages,
                 currencySymbol = uiState.currencySymbol,
                 onDismiss = { viewModel.closeVoiceDialog() },
                 onProcessPrompt = { prompt -> viewModel.processVoicePrompt(prompt) },
                 onProcessAudio = { audioBase64 -> viewModel.processAudioPrompt(audioBase64) },
                 onConfirmSave = { title, amount, category, paymentMethod ->
-                    viewModel.confirmVoiceExpenseWithEdits(title, amount, category, paymentMethod)
+                    viewModel.confirmVoiceExpenseWithEdits(title, amount, TransactionType.EXPENSE, category, paymentMethod)
+                },
+                onConfirmSaveWithType = { title, amount, type, category, paymentMethod ->
+                    viewModel.confirmVoiceExpenseWithEdits(title, amount, type, category, paymentMethod)
+                },
+                onConfirmSaveWithScope = { title, amount, type, category, paymentMethod, scope ->
+                    viewModel.confirmVoiceExpenseWithEdits(title, amount, type, category, paymentMethod, scope)
+                },
+                onClearHistory = {
+                    viewModel.clearVoiceAssistantHistory()
                 },
                 onOpenManualAdd = {
                     viewModel.closeVoiceDialog()

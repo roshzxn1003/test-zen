@@ -76,7 +76,6 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // This makes it easy to add them back in the future if needed.
 dependencies {
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-
   implementation("io.github.jan-tennert.supabase:postgrest-kt:3.0.1")
   implementation("io.github.jan-tennert.supabase:auth-kt:3.0.1")
   implementation("io.github.jan-tennert.supabase:realtime-kt:3.0.1")
@@ -84,6 +83,7 @@ dependencies {
   implementation("io.ktor:ktor-client-core:3.0.0")
   implementation("io.ktor:ktor-client-content-negotiation:3.0.0")
   implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
+
 
 
   implementation(platform(libs.androidx.compose.bom))
@@ -97,6 +97,7 @@ dependencies {
   implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
   implementation("com.google.mlkit:text-recognition:16.0.1")
+  implementation("com.google.zxing:core:3.5.3")
 
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)

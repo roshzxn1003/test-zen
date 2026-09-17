@@ -13,8 +13,81 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        val indexStatements = listOf(
+            "CREATE INDEX IF NOT EXISTS `index_families_inviteCode` ON `families` (`inviteCode`)",
+            "CREATE INDEX IF NOT EXISTS `index_family_members_familyId_userId` ON `family_members` (`familyId`, `userId`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_dateMillis` ON `transactions` (`dateMillis`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_financeScope_isDeleted` ON `transactions` (`financeScope`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_familyId_isDeleted` ON `transactions` (`familyId`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_syncStatus` ON `transactions` (`syncStatus`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_serverId` ON `transactions` (`serverId`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_category` ON `transactions` (`category`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_type` ON `transactions` (`type`)",
+            "CREATE INDEX IF NOT EXISTS `index_budgets_monthYear_isDeleted` ON `budgets` (`monthYear`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_budgets_financeScope_isDeleted` ON `budgets` (`financeScope`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_budgets_familyId_isDeleted` ON `budgets` (`familyId`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_budgets_syncStatus` ON `budgets` (`syncStatus`)",
+            "CREATE INDEX IF NOT EXISTS `index_savings_goals_targetDateMillis` ON `savings_goals` (`targetDateMillis`)",
+            "CREATE INDEX IF NOT EXISTS `index_savings_goals_financeScope_isDeleted` ON `savings_goals` (`financeScope`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_savings_goals_familyId_isDeleted` ON `savings_goals` (`familyId`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_savings_goals_syncStatus` ON `savings_goals` (`syncStatus`)",
+            "CREATE INDEX IF NOT EXISTS `index_receipts_transactionId` ON `receipts` (`transactionId`)",
+            "CREATE INDEX IF NOT EXISTS `index_receipt_items_transactionId` ON `receipt_items` (`transactionId`)",
+            "CREATE INDEX IF NOT EXISTS `index_receipt_items_receiptId` ON `receipt_items` (`receiptId`)",
+            "CREATE INDEX IF NOT EXISTS `index_ledger_transactions_familyId_dateMillis` ON `ledger_transactions` (`familyId`, `dateMillis`)",
+            "CREATE INDEX IF NOT EXISTS `index_ledger_transactions_syncStatus_isDeleted` ON `ledger_transactions` (`syncStatus`, `isDeleted`)",
+            "CREATE INDEX IF NOT EXISTS `index_family_vaults_inviteCode` ON `family_vaults` (`inviteCode`)",
+            "CREATE INDEX IF NOT EXISTS `index_family_vault_members_familyId_userId` ON `family_vault_members` (`familyId`, `userId`)"
+        )
+        for (sql in indexStatements) {
+            try {
+                db.execSQL(sql)
+            } catch (e: Exception) {
+                // Ignore index errors if already defined
+            }
+        }
+    }
+}
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        try {
+            db.execSQL("ALTER TABLE `ledger_transactions` ADD COLUMN `syncVersion` INTEGER NOT NULL DEFAULT 1")
+        } catch (e: Exception) {
+            // Ignore if column already exists
+        }
+        try {
+            db.execSQL("ALTER TABLE `family_vault_members` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+        } catch (e: Exception) {
+            // Ignore if column already exists
+        }
+        try {
+            db.execSQL("ALTER TABLE `family_vaults` ADD COLUMN `isDeleted` INTEGER NOT NULL DEFAULT 0")
+        } catch (e: Exception) {
+            // Ignore if column already exists
+        }
+    }
+}
+
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        try {
+            db.execSQL("ALTER TABLE `families` ADD COLUMN `inviteCode` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            // Ignore if column already exists
+        }
+    }
+}
+
 val MIGRATION_8_9 = object : Migration(8, 9) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        try {
+            db.execSQL("ALTER TABLE `families` ADD COLUMN `inviteCode` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            // Ignore if column already exists
+        }
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `ledger_transactions` (`transactionId` TEXT NOT NULL, `familyId` TEXT NOT NULL, `title` TEXT NOT NULL, `description` TEXT NOT NULL, `amount` REAL NOT NULL, `category` TEXT NOT NULL, `categoryIcon` TEXT NOT NULL, `type` TEXT NOT NULL, `paymentMethod` TEXT NOT NULL, `paidByMemberId` TEXT NOT NULL, `paidByName` TEXT NOT NULL, `dateMillis` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `createdBy` TEXT NOT NULL, `lastModifiedBy` TEXT NOT NULL, `isDeleted` INTEGER NOT NULL, `syncStatus` TEXT NOT NULL DEFAULT 'SYNCED', `syncVersion` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`transactionId`))"
         )
@@ -107,7 +180,7 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         com.example.data.familyledger.FamilyVault::class,
         com.example.data.familyledger.FamilyVaultMember::class
     ],
-    version = 9,
+    version = 12,
     exportSchema = false
 )
 abstract class CashFlowDatabase : RoomDatabase() {
@@ -133,8 +206,9 @@ abstract class CashFlowDatabase : RoomDatabase() {
                     CashFlowDatabase::class.java,
                     "cashflow_database"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigration(true)
+                    .fallbackToDestructiveMigrationOnDowngrade(true)
                     .addCallback(DatabaseCallback(context.applicationContext))
                     .build()
                 INSTANCE = instance

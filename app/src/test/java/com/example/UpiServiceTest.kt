@@ -826,4 +826,68 @@ class UpiServiceTest {
             )
         )
     }
+
+    // ------------------------------------------------------------
+    // BHARATQR (EMVCo) PARSING
+    // ------------------------------------------------------------
+
+    @Test
+    fun testBharatQrDynamicParsing() {
+        val emvcoPayload =
+            "00020101021226390012org.npci.upi0119merchant@okhdfcbank5204541153033565406250.005802IN5912Super Market6009Bengaluru6304ABCD"
+
+        val parsed = UpiService.parseQrPayload(emvcoPayload)
+        assertNotNull(parsed)
+        assertEquals("merchant@okhdfcbank", parsed?.payeeAddress)
+        assertEquals("Super Market", parsed?.payeeName)
+        assertEquals("250.00", parsed?.amount)
+        assertTrue(parsed?.isDynamic == true)
+    }
+
+    @Test
+    fun testBharatQrStaticParsing() {
+        val emvcoPayload =
+            "00020101021126390012org.npci.upi0119merchant@okhdfcbank5204541153033565802IN5912Super Market6009Bengaluru6304ABCD"
+
+        val parsed = UpiService.parseQrPayload(emvcoPayload)
+        assertNotNull(parsed)
+        assertEquals("merchant@okhdfcbank", parsed?.payeeAddress)
+        assertEquals("Super Market", parsed?.payeeName)
+        assertEquals("", parsed?.amount)
+        assertFalse(parsed?.isDynamic == true)
+    }
+
+    // ------------------------------------------------------------
+    // WEB-WRAPPED UPI PARSING
+    // ------------------------------------------------------------
+
+    @Test
+    fun testWebWrappedUpiUrlParsing() {
+        val webUrl = "https://upiqr.in/pay?pa=store@okaxis&pn=Store%20ABC&am=120.00"
+        val parsed = UpiService.parseQrPayload(webUrl)
+        assertNotNull(parsed)
+        assertEquals("store@okaxis", parsed?.payeeAddress)
+        assertEquals("Store ABC", parsed?.payeeName)
+        assertEquals("120.00", parsed?.amount)
+        assertTrue(parsed?.isDynamic == true)
+    }
+
+    @Test
+    fun testEmbeddedEncodedUpiUrlParsing() {
+        val webUrl = "https://example.com/checkout?target=upi%3A%2F%2Fpay%3Fpa%3Dfastpay%40ybl%26pn%3DFast%2BPay%26am%3D99.50"
+        val parsed = UpiService.parseQrPayload(webUrl)
+        assertNotNull(parsed)
+        assertEquals("fastpay@ybl", parsed?.payeeAddress)
+        assertEquals("Fast Pay", parsed?.payeeName)
+        assertEquals("99.50", parsed?.amount)
+        assertTrue(parsed?.isDynamic == true)
+    }
+
+    @Test
+    fun testSanitizedAmountWithCommas() {
+        val payload = "upi://pay?pa=shop@upi&pn=Grocery&am=1,250.00"
+        val parsed = UpiService.parseQrPayload(payload)
+        assertNotNull(parsed)
+        assertEquals("1250.00", parsed?.amount)
+    }
 }

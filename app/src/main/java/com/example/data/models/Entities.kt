@@ -1,6 +1,7 @@
 package com.example.data.models
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 enum class TransactionType {
@@ -18,7 +19,12 @@ enum class FamilyRole {
     VIEWER
 }
 
-@Entity(tableName = "families")
+@Entity(
+    tableName = "families",
+    indices = [
+        Index(value = ["inviteCode"])
+    ]
+)
 data class FamilyEntity(
     @PrimaryKey
     val id: String,
@@ -32,7 +38,12 @@ data class FamilyEntity(
     val isDeleted: Boolean = false
 )
 
-@Entity(tableName = "family_members")
+@Entity(
+    tableName = "family_members",
+    indices = [
+        Index(value = ["familyId", "userId"])
+    ]
+)
 data class FamilyMemberEntity(
     @PrimaryKey
     val id: String,
@@ -47,7 +58,18 @@ data class FamilyMemberEntity(
     val isDeleted: Boolean = false
 )
 
-@Entity(tableName = "transactions")
+@Entity(
+    tableName = "transactions",
+    indices = [
+        Index(value = ["dateMillis"]),
+        Index(value = ["financeScope", "isDeleted"]),
+        Index(value = ["familyId", "isDeleted"]),
+        Index(value = ["syncStatus"]),
+        Index(value = ["serverId"]),
+        Index(value = ["category"]),
+        Index(value = ["type"])
+    ]
+)
 data class TransactionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
@@ -84,7 +106,15 @@ data class CategoryEntity(
     val isDeleted: Boolean = false
 )
 
-@Entity(tableName = "budgets")
+@Entity(
+    tableName = "budgets",
+    indices = [
+        Index(value = ["monthYear", "isDeleted"]),
+        Index(value = ["financeScope", "isDeleted"]),
+        Index(value = ["familyId", "isDeleted"]),
+        Index(value = ["syncStatus"])
+    ]
+)
 data class BudgetEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val categoryName: String,
@@ -100,7 +130,15 @@ data class BudgetEntity(
     val isDeleted: Boolean = false
 )
 
-@Entity(tableName = "savings_goals")
+@Entity(
+    tableName = "savings_goals",
+    indices = [
+        Index(value = ["targetDateMillis"]),
+        Index(value = ["financeScope", "isDeleted"]),
+        Index(value = ["familyId", "isDeleted"]),
+        Index(value = ["syncStatus"])
+    ]
+)
 data class SavingsGoalEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
@@ -138,7 +176,12 @@ data class UserProfileEntity(
     val isDeleted: Boolean = false
 )
 
-@Entity(tableName = "receipts")
+@Entity(
+    tableName = "receipts",
+    indices = [
+        Index(value = ["transactionId"])
+    ]
+)
 data class ReceiptEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val transactionId: Long,
@@ -157,7 +200,13 @@ data class ReceiptEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "receipt_items")
+@Entity(
+    tableName = "receipt_items",
+    indices = [
+        Index(value = ["transactionId"]),
+        Index(value = ["receiptId"])
+    ]
+)
 data class ReceiptItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val receiptId: Long = 0,

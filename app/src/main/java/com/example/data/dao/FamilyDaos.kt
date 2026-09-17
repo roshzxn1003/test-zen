@@ -67,6 +67,9 @@ interface FamilyMemberDao {
     @Query("DELETE FROM family_members WHERE id = :id")
     suspend fun deleteMemberById(id: String)
 
+    @Query("SELECT * FROM family_members WHERE id = :id LIMIT 1")
+    suspend fun getMemberById(id: String): FamilyMemberEntity?
+
     @Query("SELECT * FROM family_members WHERE familyId = :familyId")
     fun getMembersByFamilyId(familyId: String): Flow<List<FamilyMemberEntity>>
 

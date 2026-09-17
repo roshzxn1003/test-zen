@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.Settings
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.net.URLDecoder
 import java.util.Locale
 
 /**
@@ -29,8 +30,16 @@ data class UpiPaymentInfo(
     val currency: String = "INR",
     val note: String = "",
     val txnRef: String = "",
-    val merchantCode: String = ""
-)
+    val merchantCode: String = "",
+    val rawUri: String? = null
+) {
+    /**
+     * Returns true if the QR code explicitly contained a non-zero payment amount (Dynamic QR).
+     * Returns false for Static QRs where the amount must be entered by the user.
+     */
+    val isDynamic: Boolean
+        get() = amount.isNotBlank() && (amount.toDoubleOrNull() ?: 0.0) > 0.0
+}
 
 /**
  * Possible states of a UPI payment.
@@ -155,13 +164,17 @@ object UpiService {
                 info.payeeAddress.trim()
             )
 
-        // Payee name
+        // Payee name (sanitized for NPCI compliance: max 50 chars, no illegal punctuation)
         if (info.payeeName.isNotBlank()) {
-
-            builder.appendQueryParameter(
-                "pn",
-                info.payeeName.trim()
-            )
+            val cleanPn = info.payeeName.trim()
+                .filter { it.isLetterOrDigit() || it.isWhitespace() || it == '-' || it == '.' }
+                .take(50)
+            if (cleanPn.isNotBlank()) {
+                builder.appendQueryParameter(
+                    "pn",
+                    cleanPn
+                )
+            }
         }
 
         // Amount
@@ -188,16 +201,21 @@ object UpiService {
             }
         )
 
-        // Transaction note
+        // Transaction note (sanitized for NPCI compliance: max 80 chars)
         if (info.note.isNotBlank()) {
-
-            builder.appendQueryParameter(
-                "tn",
-                info.note.trim()
-            )
+            val cleanNote = info.note.trim()
+                .filter { it.isLetterOrDigit() || it.isWhitespace() || it == '-' || it == '.' }
+                .take(80)
+            if (cleanNote.isNotBlank()) {
+                builder.appendQueryParameter(
+                    "tn",
+                    cleanNote
+                )
+            }
         }
 
-        // Transaction reference
+        // Transaction reference: ONLY include if it came from the merchant QR or verified merchant!
+        // DO NOT generate random synthetic tr for P2P transactions as NPCI will reject them!
         if (info.txnRef.isNotBlank()) {
 
             builder.appendQueryParameter(
@@ -218,9 +236,68 @@ object UpiService {
         return builder.build()
     }
 
+    /**
+     * Builds a payment URI for a scanned QR code, preserving all original
+     * cryptographic signatures (sign=...), orgid, mode, and merchant parameters.
+     */
+    fun buildQrPaymentUri(rawUri: String, amount: Double?): Uri {
+        val parsedUri = Uri.parse(rawUri)
+        if (amount == null || amount <= 0.0) {
+            return parsedUri
+        }
+
+        val normalizedAmount = normalizeAmount(amount.toString()) ?: String.format(Locale.US, "%.2f", amount)
+        val builder = parsedUri.buildUpon()
+        builder.clearQuery()
+        var amFound = false
+        for (param in parsedUri.queryParameterNames) {
+            if (param.equals("am", ignoreCase = true)) {
+                builder.appendQueryParameter(param, normalizedAmount)
+                amFound = true
+            } else {
+                parsedUri.getQueryParameter(param)?.let {
+                    builder.appendQueryParameter(param, it)
+                }
+            }
+        }
+        if (!amFound) {
+            builder.appendQueryParameter("am", normalizedAmount)
+        }
+        return builder.build()
+    }
+
     // ------------------------------------------------------------
     // GENERIC PAYMENT INTENT
     // ------------------------------------------------------------
+
+    /**
+     * Creates a UPI payment Intent using an already built or preserved URI.
+     */
+    fun buildPayIntentWithUri(
+        uri: Uri,
+        targetPackage: String? = null,
+        useChooser: Boolean = true
+    ): Intent {
+        return if (targetPackage.isNullOrBlank()) {
+            val baseIntent = Intent(
+                Intent.ACTION_VIEW,
+                uri
+            )
+            if (useChooser) {
+                Intent.createChooser(
+                    baseIntent,
+                    "Pay with any UPI App"
+                )
+            } else {
+                baseIntent
+            }
+        } else {
+            Intent(
+                Intent.ACTION_VIEW,
+                uri
+            ).setPackage(targetPackage)
+        }
+    }
 
     /**
      * Creates a UPI payment Intent.
@@ -236,35 +313,8 @@ object UpiService {
         targetPackage: String? = null,
         useChooser: Boolean = true
     ): Intent {
-
         val uri = buildPaymentUri(info)
-
-        return if (targetPackage.isNullOrBlank()) {
-
-            val baseIntent = Intent(
-                Intent.ACTION_VIEW,
-                uri
-            )
-
-            if (useChooser) {
-
-                Intent.createChooser(
-                    baseIntent,
-                    "Pay with any UPI App"
-                )
-
-            } else {
-
-                baseIntent
-            }
-
-        } else {
-
-            Intent(
-                Intent.ACTION_VIEW,
-                uri
-            ).setPackage(targetPackage)
-        }
+        return buildPayIntentWithUri(uri, targetPackage, useChooser)
     }
 
     // ------------------------------------------------------------
@@ -366,155 +416,227 @@ object UpiService {
     }
 
     // ------------------------------------------------------------
-    // QR CODE PARSER
+    // QR CODE PARSER (Standard UPI, BharatQR EMVCo & Web-wrapped)
     // ------------------------------------------------------------
 
     /**
-     * Parses raw QR content.
-     *
-     * Supports:
-     *
-     * 1. upi://pay?... URLs
-     * 2. Text containing a UPI URL
-     * 3. Bare VPA
-     *
-     * Examples:
-     *
-     * upi://pay?pa=merchant@okaxis&pn=Merchant
-     *
-     * merchant@okaxis
+     * Parses TLV (Tag-Length-Value) encoded strings used in EMVCo and BharatQR specifications.
+     */
+    fun parseEmvCoTlv(data: String): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        var index = 0
+        while (index + 4 <= data.length) {
+            val tag = data.substring(index, index + 2)
+            val length = data.substring(index + 2, index + 4).toIntOrNull() ?: break
+            index += 4
+            if (index + length > data.length) break
+            val value = data.substring(index, index + length)
+            map[tag] = value
+            index += length
+        }
+        return map
+    }
+
+    /**
+     * Parses BharatQR (EMVCo specification) format commonly printed on Indian POS
+     * terminals, card swipe machines, and retail soundboxes (starts with 000201...).
+     */
+    fun parseBharatQr(raw: String): UpiPaymentInfo? {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("000201")) return null
+
+        val tags = parseEmvCoTlv(trimmed)
+        if (tags.isEmpty()) return null
+
+        var vpa: String? = null
+        var merchantCode = tags["52"]?.trim().orEmpty()
+
+        // In NPCI BharatQR, tags 26 to 51 define merchant account information for UPI
+        for (tagKey in listOf("26", "27", "28", "29", "30", "31")) {
+            val merchantData = tags[tagKey] ?: continue
+            val subTags = parseEmvCoTlv(merchantData)
+            val candidateVpa = subTags["01"]
+            if (!candidateVpa.isNullOrBlank() && isValidVpa(candidateVpa)) {
+                vpa = candidateVpa
+                if (merchantCode.isBlank()) {
+                    merchantCode = subTags["02"]?.trim().orEmpty()
+                }
+                break
+            }
+            for (subVal in subTags.values) {
+                if (isValidVpa(subVal)) {
+                    vpa = subVal
+                    break
+                }
+            }
+            if (vpa != null) break
+        }
+
+        if (vpa == null) {
+            for (value in tags.values) {
+                val candidate = value.split(Regex("[\\s:?&=;,/|]")).firstOrNull { isValidVpa(it.trim()) }
+                if (candidate != null) {
+                    vpa = candidate.trim()
+                    break
+                }
+            }
+        }
+
+        if (vpa.isNullOrBlank() || !isValidVpa(vpa)) return null
+
+        val merchantName = tags["59"]?.trim().orEmpty()
+        val amount = tags["54"]?.trim().orEmpty()
+        val currency = if (tags["53"] == "356") "INR" else "INR"
+
+        var note = ""
+        var ref = ""
+        tags["62"]?.let { addl ->
+            val addlTags = parseEmvCoTlv(addl)
+            ref = addlTags["05"] ?: addlTags["01"] ?: ""
+            note = addlTags["08"] ?: addlTags["03"] ?: ""
+        }
+
+        val cleanName = merchantName.ifBlank { "UPI Merchant" }
+        val rawUri = "upi://pay?pa=$vpa&pn=${Uri.encode(cleanName)}${if (amount.isNotBlank()) "&am=$amount" else ""}&cu=$currency"
+
+        return UpiPaymentInfo(
+            payeeAddress = vpa,
+            payeeName = cleanName,
+            amount = amount,
+            currency = currency,
+            note = note,
+            txnRef = ref,
+            merchantCode = merchantCode,
+            rawUri = rawUri
+        )
+    }
+
+    /**
+     * Parses standard upi://pay URLs with query parameters.
+     */
+    fun parseUpiUrl(upiUrlString: String): UpiPaymentInfo? {
+        val upiIndex = upiUrlString.indexOf("upi://pay", ignoreCase = true)
+        if (upiIndex < 0) return null
+        return try {
+            val uriString = upiUrlString.substring(upiIndex)
+            val uri = Uri.parse(uriString)
+            val queryParamMap = mutableMapOf<String, String>()
+            uri.queryParameterNames.forEach { name ->
+                uri.getQueryParameter(name)?.let { value ->
+                    queryParamMap[name.lowercase(Locale.ROOT)] = value
+                }
+            }
+
+            val pa = queryParamMap["pa"]
+            if (!pa.isNullOrBlank() && isValidVpa(pa.trim())) {
+                val pn = (queryParamMap["pn"] ?: "").replace("+", " ").trim()
+                val am = (queryParamMap["am"] ?: "").replace(",", "").replace("₹", "").replace("Rs.", "").trim()
+                val cu = queryParamMap["cu"] ?: "INR"
+                val tn = (queryParamMap["tn"] ?: "").replace("+", " ").trim()
+                val tr = queryParamMap["tr"] ?: ""
+                val mc = queryParamMap["mc"] ?: ""
+                UpiPaymentInfo(
+                    payeeAddress = pa.trim(),
+                    payeeName = pn,
+                    amount = am,
+                    currency = cu,
+                    note = tn,
+                    txnRef = tr,
+                    merchantCode = mc,
+                    rawUri = uriString
+                )
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Parses web-wrapped URLs (e.g. https://upiqr.in/..., https://pay.google.com/...)
+     * that contain UPI parameters or percent-encoded UPI intents.
+     */
+    fun parseWebWrappedUpi(url: String): UpiPaymentInfo? {
+        val trimmed = url.trim()
+        if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
+            return null
+        }
+        return try {
+            val uri = Uri.parse(trimmed)
+            for (paramName in uri.queryParameterNames) {
+                val paramVal = uri.getQueryParameter(paramName) ?: continue
+                val decoded = try { URLDecoder.decode(paramVal, "UTF-8") } catch (e: Exception) { paramVal }
+                if (decoded.contains("upi://pay", ignoreCase = true)) {
+                    val embedded = parseUpiUrl(decoded)
+                    if (embedded != null) return embedded
+                }
+            }
+
+            val pa = uri.getQueryParameter("pa")
+            if (!pa.isNullOrBlank() && isValidVpa(pa.trim())) {
+                val pn = (uri.getQueryParameter("pn") ?: "").replace("+", " ").trim()
+                val am = uri.getQueryParameter("am")?.replace(",", "")?.replace("₹", "")?.replace("Rs.", "")?.trim() ?: ""
+                val cu = uri.getQueryParameter("cu") ?: "INR"
+                val tn = (uri.getQueryParameter("tn") ?: "").replace("+", " ").trim()
+                val tr = uri.getQueryParameter("tr") ?: ""
+                val mc = uri.getQueryParameter("mc") ?: ""
+                UpiPaymentInfo(
+                    payeeAddress = pa.trim(),
+                    payeeName = pn,
+                    amount = am,
+                    currency = cu,
+                    note = tn,
+                    txnRef = tr,
+                    merchantCode = mc,
+                    rawUri = "upi://pay?pa=${pa.trim()}&pn=${Uri.encode(pn)}${if (am.isNotBlank()) "&am=$am" else ""}&cu=$cu"
+                )
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Parses raw QR content supporting:
+     * 1. BharatQR (EMVCo standard)
+     * 2. Standard upi://pay?... URLs
+     * 3. Web-wrapped payment URLs (https://...)
+     * 4. Embedded UPI links inside text
+     * 5. Bare VPA
      */
     fun parseQrPayload(
         raw: String
     ): UpiPaymentInfo? {
-
         val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
 
-        if (trimmed.isBlank()) {
-            return null
-        }
+        // 1. BharatQR (EMVCo format starting with 000201)
+        val bharatQrResult = parseBharatQr(trimmed)
+        if (bharatQrResult != null) return bharatQrResult
 
-        // --------------------------------------------------------
-        // 1. UPI URL
-        // --------------------------------------------------------
+        // 2. Standard UPI URI (upi://pay?...)
+        val upiResult = parseUpiUrl(trimmed)
+        if (upiResult != null) return upiResult
 
-        val upiIndex = trimmed.indexOf(
-            "upi://pay",
-            ignoreCase = true
-        )
+        // 3. Web-wrapped UPI URL (https://...)
+        val webResult = parseWebWrappedUpi(trimmed)
+        if (webResult != null) return webResult
 
-        if (upiIndex >= 0) {
-
-            try {
-
-                val upiUriString =
-                    trimmed.substring(upiIndex)
-
-                val uri =
-                    Uri.parse(upiUriString)
-
-                val queryParamMap =
-                    mutableMapOf<String, String>()
-
-                uri.queryParameterNames.forEach { name ->
-
-                    uri.getQueryParameter(name)?.let { value ->
-
-                        queryParamMap[
-                            name.lowercase(Locale.ROOT)
-                        ] = value
-                    }
-                }
-
-                val pa =
-                    queryParamMap["pa"]
-
-                if (
-                    !pa.isNullOrBlank() &&
-                    isValidVpa(pa)
-                ) {
-
-                    return UpiPaymentInfo(
-
-                        payeeAddress =
-                            pa.trim(),
-
-                        payeeName =
-                            queryParamMap["pn"] ?: "",
-
-                        amount =
-                            queryParamMap["am"] ?: "",
-
-                        currency =
-                            queryParamMap["cu"]
-                                ?: "INR",
-
-                        note =
-                            queryParamMap["tn"]
-                                ?: "",
-
-                        txnRef =
-                            queryParamMap["tr"]
-                                ?: "",
-
-                        merchantCode =
-                            queryParamMap["mc"]
-                                ?: ""
-                    )
-                }
-
-            } catch (e: Exception) {
-
-                // Continue to VPA fallback
-            }
-        }
-
-        // --------------------------------------------------------
-        // 2. SEARCH FOR VPA INSIDE TEXT
-        // --------------------------------------------------------
-
+        // 4. Search for VPA inside plain text
         if (trimmed.contains("@")) {
-
-            val tokens =
-                trimmed.split(
-                    Regex("[\\s:?&=;,/|]")
-                )
-
-            val candidate =
-                tokens.firstOrNull {
-
-                    isValidVpa(
-                        it.trim()
-                    )
-                }
-
+            val tokens = trimmed.split(Regex("[\\s:?&=;,/|]"))
+            val candidate = tokens.firstOrNull { isValidVpa(it.trim()) }
             if (candidate != null) {
-
                 return UpiPaymentInfo(
-                    payeeAddress =
-                        candidate.trim(),
-
-                    payeeName =
-                        "UPI Merchant"
+                    payeeAddress = candidate.trim(),
+                    payeeName = "UPI Merchant"
                 )
             }
         }
 
-        // --------------------------------------------------------
-        // 3. BARE VPA
-        // --------------------------------------------------------
-
-        return if (
-            isValidVpa(trimmed)
-        ) {
-
-            UpiPaymentInfo(
-                payeeAddress =
-                    trimmed
-            )
-
+        // 5. Bare VPA
+        return if (isValidVpa(trimmed)) {
+            UpiPaymentInfo(payeeAddress = trimmed)
         } else {
-
             null
         }
     }
@@ -861,6 +983,166 @@ object UpiService {
                 uri
             )
         }
+    }
+
+    // ------------------------------------------------------------
+    // INSTALLED STATUS HELPERS
+    // ------------------------------------------------------------
+
+    fun isPhonePeInstalled(context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(PHONEPE_PACKAGE, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun isPaytmInstalled(context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(PAYTM_PACKAGE, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun isBhimInstalled(context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(BHIM_PACKAGE, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // ------------------------------------------------------------
+    // UPI SCANNER INTENT LAUNCHER
+    // ------------------------------------------------------------
+
+    /**
+     * Builds an Intent to launch a UPI app's scanner or payment interface.
+     *
+     * Supports:
+     * - PhonePe: phonepe://scan deep link or launch intent
+     * - Paytm: paytmmp://pay_flow?featuretype=scanner or launch intent
+     * - Google Pay: upi://pay with GPay package or launch intent
+     * - BHIM: upi://pay with BHIM package or launch intent
+     * - Generic / Chooser: upi://pay chooser
+     */
+    fun buildUpiScannerIntent(
+        context: Context,
+        targetPackage: String? = null
+    ): Intent {
+        val pm = context.packageManager
+
+        when (targetPackage) {
+            PHONEPE_PACKAGE -> {
+                // Try PhonePe scanner deep link
+                try {
+                    val scanUri = Uri.parse("phonepe://scan")
+                    val scanIntent = Intent(Intent.ACTION_VIEW, scanUri).apply {
+                        setPackage(PHONEPE_PACKAGE)
+                    }
+                    if (scanIntent.resolveActivity(pm) != null) {
+                        return scanIntent
+                    }
+                } catch (e: Exception) {
+                    // Fallback
+                }
+
+                try {
+                    val qrUri = Uri.parse("phonepe://qr")
+                    val qrIntent = Intent(Intent.ACTION_VIEW, qrUri).apply {
+                        setPackage(PHONEPE_PACKAGE)
+                    }
+                    if (qrIntent.resolveActivity(pm) != null) {
+                        return qrIntent
+                    }
+                } catch (e: Exception) {
+                    // Fallback
+                }
+
+                pm.getLaunchIntentForPackage(PHONEPE_PACKAGE)?.let { return it }
+            }
+            PAYTM_PACKAGE -> {
+                // Try Paytm scanner deep link
+                try {
+                    val paytmScanUri = Uri.parse("paytmmp://pay_flow?featuretype=scanner")
+                    val paytmScanIntent = Intent(Intent.ACTION_VIEW, paytmScanUri).apply {
+                        setPackage(PAYTM_PACKAGE)
+                    }
+                    if (paytmScanIntent.resolveActivity(pm) != null) {
+                        return paytmScanIntent
+                    }
+                } catch (e: Exception) {
+                    // Fallback
+                }
+
+                try {
+                    val paytmWalletScanUri = Uri.parse("paytmmp://cash_wallet?featuretype=scanner")
+                    val paytmWalletScanIntent = Intent(Intent.ACTION_VIEW, paytmWalletScanUri).apply {
+                        setPackage(PAYTM_PACKAGE)
+                    }
+                    if (paytmWalletScanIntent.resolveActivity(pm) != null) {
+                        return paytmWalletScanIntent
+                    }
+                } catch (e: Exception) {
+                    // Fallback
+                }
+
+                pm.getLaunchIntentForPackage(PAYTM_PACKAGE)?.let { return it }
+            }
+            GOOGLE_PAY_PACKAGE -> {
+                // Google Pay: try upi://pay with GPay package or launch intent
+                try {
+                    val gpayIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")).apply {
+                        setPackage(GOOGLE_PAY_PACKAGE)
+                    }
+                    if (gpayIntent.resolveActivity(pm) != null) {
+                        return gpayIntent
+                    }
+                } catch (e: Exception) {
+                    // Fallback
+                }
+
+                pm.getLaunchIntentForPackage(GOOGLE_PAY_PACKAGE)?.let { return it }
+            }
+            BHIM_PACKAGE -> {
+                try {
+                    val bhimIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")).apply {
+                        setPackage(BHIM_PACKAGE)
+                    }
+                    if (bhimIntent.resolveActivity(pm) != null) {
+                        return bhimIntent
+                    }
+                } catch (e: Exception) {
+                    // Fallback
+                }
+
+                pm.getLaunchIntentForPackage(BHIM_PACKAGE)?.let { return it }
+            }
+            else -> {
+                if (!targetPackage.isNullOrBlank()) {
+                    try {
+                        val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")).apply {
+                            setPackage(targetPackage)
+                        }
+                        if (appIntent.resolveActivity(pm) != null) {
+                            return appIntent
+                        }
+                    } catch (e: Exception) {
+                        // Fallback
+                    }
+
+                    pm.getLaunchIntentForPackage(targetPackage)?.let { return it }
+                }
+            }
+        }
+
+        // Generic fallback: upi://pay chooser
+        val genericIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay"))
+        return Intent.createChooser(genericIntent, "Open UPI App Scanner")
     }
 
     // ------------------------------------------------------------

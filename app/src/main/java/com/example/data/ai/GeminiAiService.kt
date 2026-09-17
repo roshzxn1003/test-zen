@@ -1,5 +1,6 @@
 package com.example.data.ai
 
+import com.example.data.models.FinanceScope
 import com.example.data.models.TransactionType
 import com.example.BuildConfig
 import org.json.JSONArray
@@ -7,6 +8,7 @@ import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -17,6 +19,7 @@ data class ParsedVoiceExpense(
     val category: String = "Food & Dining",
     val paymentMethod: String = "UPI",
     val note: String = "",
+    val scope: FinanceScope = FinanceScope.PERSONAL,
     val item: String? = null,
     val quantity: Double? = null,
     val unit: String? = null,
@@ -46,11 +49,23 @@ data class ParsedReceipt(
     val rawText: String = ""
 )
 
+// Maintained for backward compatibility
+enum class VoiceAssistantIntent {
+    LOG_TRANSACTION
+}
+
+data class VoiceAssistantResponse(
+    val intent: VoiceAssistantIntent = VoiceAssistantIntent.LOG_TRANSACTION,
+    val spokenText: String = "",
+    val displayText: String = "",
+    val parsedExpense: ParsedVoiceExpense? = null
+)
+
 object GeminiAiService {
-    
+
     /**
-     * Parses a spoken or typed financial transaction command in English, Tamil (தமிழ்), or Tanglish.
-     * Extracts Item, Quantity, Unit, Amount, Category, Type, and Payment Method simultaneously in a single transaction.
+     * Parses a spoken or typed financial transaction command in English.
+     * Extracts Title, Amount, Type (EXPENSE vs INCOME), Category, and Payment Method.
      */
     suspend fun parseVoiceCommand(prompt: String): ParsedVoiceExpense = withContext(Dispatchers.IO) {
         val apiKey = try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" }
@@ -59,62 +74,53 @@ object GeminiAiService {
         }
         try {
             val systemInstruction = """
-                You are a financial parsing assistant. The user will input transaction details via voice in English, Tamil (தமிழ்), or Tanglish (a mix of Tamil and English words written in English script). Translate the intent accurately into English and extract the JSON values (Amount, Item, Expense/Income, Category). For example, if the input is 'Innaiku movie ki 250 selavu aachu' (Tanglish) or 'இன்று படத்திற்கு 250 செலவு' (Tamil), recognize it as an Expense of 250 for 'Movie' in the 'Entertainment' category.
-                
-                You must extract BOTH 'Item' and 'Quantity' simultaneously from a single voice command, along with amount, category, and payment method.
-                
-                Extract the data into ONLY a valid JSON object matching this schema:
-                - "item": Standard clean English name of the item or service (e.g. "Movie", "Tomato", "Apple", "Onion", "Milk", "Tea", "Petrol", "Biryani", "Groceries", "Salary")
-                - "quantity": Numeric count or quantity (e.g. 10 for "Pathu thakkali", 5 for "Add 5 apples", 2.0 for "2 kg onion", 1.0 for "Oru tea", 1.0 for "Innaiku movie ki 250").
-                - "unit": Unit of measure if mentioned or implied (e.g. "pcs", "kg", "g", "L", "pkt", "bunch", "dozen", "cup", "trip", "month", "ticket"). Default to "pcs" for countable items, "ticket" for movie/cinema.
-                - "unitPrice": Estimated or stated price per unit (number)
-                - "amount": Pure numeric total monetary cost in rupees/currency without symbols (e.g. 50.0, 250.0, 500.0). If no total price is given in speech, estimate total based on unitPrice * quantity, or set an appropriate sensible amount so the transaction is immediately ready.
-                - "title": Clean, concise transaction title (e.g. "Movie", "Tomato (10 pcs)", "Apple (5 pcs)", "Onion (2 kg)", "Lunch", "Petrol", "Monthly Salary")
-                - "type": "EXPENSE" or "INCOME"
-                - "category": Match best from ("Food & Dining", "Transportation", "Shopping", "Entertainment", "Bills & Utilities", "Housing & Rent", "Healthcare", "Education", "Salary & Income", "Investments", "Other")
-                - "paymentMethod": Match from ("UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer")
+                You are a domain-specific financial transaction parser for a personal & family finance app.
+                The user will provide an expense or income transaction command in English or Romanized Tanglish (English letters).
+                Accurately extract the values into ONLY a valid JSON object matching this schema:
+                - "title": Concise transaction title in English (e.g. "Lunch", "Swiggy Order", "Zomato Delivery", "Rapido Ride", "Movie Tickets", "Monthly Salary", "Grocery Shopping", "Petrol", "Electricity Bill", "House Rent", "Blinkit Groceries")
+                - "amount": Total numeric monetary value as a number (e.g. 250.0, 1200.0, 50000.0). Accurately convert numeric abbreviations: "50k" -> 50000.0, "2.5k" -> 2500.0, "1 lakh" -> 100000.0, "2 crore" -> 20000000.0.
+                - "type": "EXPENSE" or "INCOME" (e.g. salary, freelance, cashback, bonus, stipend, received money, credited is INCOME; spent, paid, bought, purchase, ordered, recharge, bill is EXPENSE)
+                - "category": Choose best from ("Food & Dining", "Transportation", "Shopping", "Entertainment", "Bills & Utilities", "Housing & Rent", "Healthcare", "Education", "Salary & Income", "Investments", "Other")
+                - "paymentMethod": Choose best from ("UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer")
+                - "scope": "PERSONAL" or "FAMILY" (detect if user mentions family, vault, shared, home, split, joint; default to "PERSONAL")
                 - "note": Original user prompt verbatim
                 
-                Tamil / Tanglish Few-Shot Examples:
-                1. "Innaiku movie ki 250 selavu aachu" / "இன்று படத்திற்கு 250 செலவு" -> {"item": "Movie", "quantity": 1, "unit": "ticket", "unitPrice": 250.0, "amount": 250.0, "title": "Movie", "category": "Entertainment", "type": "EXPENSE", "paymentMethod": "UPI", "note": "Innaiku movie ki 250 selavu aachu"}
-                2. "Pathu thakkali" / "10 தக்காளி" -> {"item": "Tomato", "quantity": 10, "unit": "pcs", "unitPrice": 5.0, "amount": 50.0, "title": "Tomato (10 pcs)", "category": "Shopping", "type": "EXPENSE", "paymentMethod": "Cash", "note": "Pathu thakkali"}
-                3. "Add 5 apples" / "5 ஆப்பிள்" -> {"item": "Apple", "quantity": 5, "unit": "pcs", "unitPrice": 20.0, "amount": 100.0, "title": "Apple (5 pcs)", "category": "Shopping", "type": "EXPENSE", "paymentMethod": "UPI", "note": "Add 5 apples"}
-                4. "2 kg vengayam 60 rs" / "2 கிலோ வெங்காயம் 60 ரூபாய்" -> {"item": "Onion", "quantity": 2, "unit": "kg", "unitPrice": 30.0, "amount": 60.0, "title": "Onion (2 kg)", "category": "Shopping", "type": "EXPENSE", "paymentMethod": "UPI", "note": "2 kg vengayam 60 rs"}
-                5. "Rendu biryani 400 gpay" / "இரண்டு பிரியாணி 400 gpay" -> {"item": "Biryani", "quantity": 2, "unit": "pcs", "unitPrice": 200.0, "amount": 400.0, "title": "Biryani (2 pcs)", "category": "Food & Dining", "type": "EXPENSE", "paymentMethod": "UPI", "note": "Rendu biryani 400 gpay"}
-                6. "Oru tea 15 rubai" / "ஒரு டீ 15 ரூபாய்" -> {"item": "Tea", "quantity": 1, "unit": "cup", "unitPrice": 15.0, "amount": 15.0, "title": "Tea (1 cup)", "category": "Food & Dining", "type": "EXPENSE", "paymentMethod": "UPI", "note": "Oru tea 15 rubai"}
-                7. "500 petrol phonepe" / "பெட்ரோல் 500 ரூபாய்" -> {"item": "Petrol / Fuel", "quantity": 1, "unit": "refill", "unitPrice": 500.0, "amount": 500.0, "title": "Petrol / Fuel", "category": "Transportation", "type": "EXPENSE", "paymentMethod": "UPI", "note": "500 petrol phonepe"}
-                8. "Got salary 35000" / "சம்பளம் 35000 வந்தது" -> {"item": "Monthly Salary", "quantity": 1, "unit": "month", "unitPrice": 35000.0, "amount": 35000.0, "title": "Monthly Salary", "category": "Salary & Income", "type": "INCOME", "paymentMethod": "Bank Transfer", "note": "Got salary 35000"}
+                Examples:
+                1. "Spent 350 for lunch via UPI" -> {"title": "Lunch", "amount": 350.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Spent 350 for lunch via UPI"}
+                2. "Paid 1200 for electricity bill cash" -> {"title": "Electricity Bill", "amount": 1200.0, "type": "EXPENSE", "category": "Bills & Utilities", "paymentMethod": "Cash", "scope": "PERSONAL", "note": "Paid 1200 for electricity bill cash"}
+                3. "Received 50k salary from office in bank" -> {"title": "Monthly Salary", "amount": 50000.0, "type": "INCOME", "category": "Salary & Income", "paymentMethod": "Bank Transfer", "scope": "PERSONAL", "note": "Received 50k salary from office in bank"}
+                4. "Got 200 cashback on Google Pay" -> {"title": "Cashback", "amount": 200.0, "type": "INCOME", "category": "Investments", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Got 200 cashback on Google Pay"}
+                5. "500 petrol via PhonePe" -> {"title": "Petrol / Fuel", "amount": 500.0, "type": "EXPENSE", "category": "Transportation", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "500 petrol via PhonePe"}
+                6. "Family groceries 2.5k credit card" -> {"title": "Family Groceries", "amount": 2500.0, "type": "EXPENSE", "category": "Shopping", "paymentMethod": "Credit Card", "scope": "FAMILY", "note": "Family groceries 2.5k credit card"}
+                7. "Swiggy dinner 450 UPI" -> {"title": "Swiggy Food Order", "amount": 450.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Swiggy dinner 450 UPI"}
+                8. "Rapido bike ride 65 cash" -> {"title": "Rapido Ride", "amount": 65.0, "type": "EXPENSE", "category": "Transportation", "paymentMethod": "Cash", "scope": "PERSONAL", "note": "Rapido bike ride 65 cash"}
+                9. "Shared house rent 15000 bank transfer" -> {"title": "House Rent", "amount": 15000.0, "type": "EXPENSE", "category": "Housing & Rent", "paymentMethod": "Bank Transfer", "scope": "FAMILY", "note": "Shared house rent 15000 bank transfer"}
+                10. "Saapadu 180 selavu UPI" -> {"title": "Food & Dining", "amount": 180.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Saapadu 180 selavu UPI"}
                 
                 Return plain JSON only without markdown formatting.
             """.trimIndent()
             val responseText = callGeminiApi(apiKey, systemInstruction, prompt)
             val jsonClean = responseText.replace("```json", "").replace("```", "").trim()
             val jsonObj = JSONObject(jsonClean)
-            val item = jsonObj.optString("item", "").ifBlank { null }
-            val quantity = if (jsonObj.has("quantity")) jsonObj.optDouble("quantity", 1.0) else null
-            val unit = jsonObj.optString("unit", "").ifBlank { null }
-            val unitPrice = if (jsonObj.has("unitPrice")) jsonObj.optDouble("unitPrice", 0.0) else null
-            val title = jsonObj.optString("title", item?.let { if (quantity != null && quantity > 1) "$it (${quantity.toInt()} ${unit ?: "pcs"})" else it } ?: "Voice Entry")
+            val title = jsonObj.optString("title", "Voice Entry")
             val amount = jsonObj.optDouble("amount", 0.0)
             val typeStr = jsonObj.optString("type", "EXPENSE")
             val type = if (typeStr.uppercase() == "INCOME") TransactionType.INCOME else TransactionType.EXPENSE
-            val category = jsonObj.optString("category", "Food & Dining")
+            val category = jsonObj.optString("category", if (type == TransactionType.INCOME) "Salary & Income" else "Food & Dining")
             val paymentMethod = jsonObj.optString("paymentMethod", "UPI")
+            val scopeStr = jsonObj.optString("scope", "PERSONAL")
+            val scope = if (scopeStr.uppercase() == "FAMILY") FinanceScope.FAMILY else FinanceScope.PERSONAL
             val note = jsonObj.optString("note", prompt)
-            
-            if (amount > 0 || (quantity != null && quantity > 0)) {
-                val finalAmount = if (amount > 0) amount else ((quantity ?: 1.0) * (unitPrice ?: 10.0))
+
+            if (amount > 0) {
                 ParsedVoiceExpense(
                     title = title,
-                    amount = finalAmount,
+                    amount = amount,
                     type = type,
                     category = category,
                     paymentMethod = paymentMethod,
                     note = note,
-                    item = item,
-                    quantity = quantity,
-                    unit = unit,
-                    unitPrice = unitPrice
+                    scope = scope
                 )
             } else {
                 fallbackParseVoiceCommand(prompt)
@@ -131,30 +137,17 @@ object GeminiAiService {
         }
         try {
             val systemInstruction = """
-                You are a financial parsing assistant. The user will input transaction details via voice/audio in English, Tamil (தமிழ்), or Tanglish (a mix of Tamil and English words written in English script). Translate the intent accurately into English and extract the JSON values (Amount, Item, Expense/Income, Category). For example, if the input is 'Innaiku movie ki 250 selavu aachu' (Tanglish) or 'இன்று படத்திற்கு 250 செலவு' (Tamil), recognize it as an Expense of 250 for 'Movie' in the 'Entertainment' category.
-                
-                Transcribe the audio accurately AND extract the transaction details simultaneously into ONLY a JSON object:
-                - "item": clean item name in English (e.g. "Movie", "Tomato", "Apple", "Tea", "Petrol", "Biryani", "Groceries")
-                - "quantity": numeric count or quantity (e.g. 1 for movie, 10 for "Pathu thakkali", 5 for "5 apples", 2 for "2 kg onion")
-                - "unit": unit of measure ("ticket", "pcs", "kg", "L", "pkt", "cup", etc.)
-                - "title": concise formatted title (e.g. "Movie", "Tomato (10 pcs)", "Apple (5 pcs)", "Lunch")
+                You are a financial transaction voice parser. Transcribe the spoken audio in English and extract the transaction into ONLY a JSON object:
+                - "title": concise English title (e.g. "Lunch", "Groceries", "Salary")
                 - "amount": total amount as number (e.g. 250.0)
                 - "type": "EXPENSE" or "INCOME"
                 - "category": ("Food & Dining", "Transportation", "Shopping", "Entertainment", "Bills & Utilities", "Housing & Rent", "Healthcare", "Education", "Salary & Income", "Investments", "Other")
                 - "paymentMethod": ("UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer")
-                - "note": accurate transcription of speech in English/Tamil
-
-                Tamil / Tanglish Few-Shot Examples:
-                1. "Innaiku movie ki 250 selavu aachu" / "இன்று படத்திற்கு 250 செலவு" -> {"item": "Movie", "quantity": 1, "unit": "ticket", "unitPrice": 250.0, "amount": 250.0, "title": "Movie", "category": "Entertainment", "type": "EXPENSE", "paymentMethod": "UPI", "note": "Innaiku movie ki 250 selavu aachu"}
-                2. "Pathu thakkali" / "10 தக்காளி" -> {"item": "Tomato", "quantity": 10, "unit": "pcs", "unitPrice": 5.0, "amount": 50.0, "title": "Tomato (10 pcs)", "category": "Shopping", "type": "EXPENSE", "paymentMethod": "Cash", "note": "Pathu thakkali"}
-                3. "Add 5 apples" / "5 ஆப்பிள்" -> {"item": "Apple", "quantity": 5, "unit": "pcs", "unitPrice": 20.0, "amount": 100.0, "title": "Apple (5 pcs)", "category": "Shopping", "type": "EXPENSE", "paymentMethod": "UPI", "note": "Add 5 apples"}
-                4. "2 kg vengayam 60 rs" / "2 கிலோ வெங்காயம் 60 ரூபாய்" -> {"item": "Onion", "quantity": 2, "unit": "kg", "unitPrice": 30.0, "amount": 60.0, "title": "Onion (2 kg)", "category": "Shopping", "type": "EXPENSE", "paymentMethod": "UPI", "note": "2 kg vengayam 60 rs"}
-                5. "Rendu biryani 400 gpay" / "இரண்டு பிரியாணி 400 gpay" -> {"item": "Biryani", "quantity": 2, "unit": "pcs", "unitPrice": 200.0, "amount": 400.0, "title": "Biryani (2 pcs)", "category": "Food & Dining", "type": "EXPENSE", "paymentMethod": "UPI", "note": "Rendu biryani 400 gpay"}
-
+                - "note": transcription in English
                 Return plain JSON only without markdown formatting.
             """.trimIndent()
-            
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey")
+
+            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
@@ -179,7 +172,6 @@ object GeminiAiService {
                                 put("data", audioBase64)
                             })
                         })
-                        put(JSONObject().apply { put("text", "Please transcribe and extract this transaction.") })
                     })
                 }))
             }
@@ -196,38 +188,30 @@ object GeminiAiService {
                 val firstCandidate = candidates?.optJSONObject(0)
                 val content = firstCandidate?.optJSONObject("content")
                 val parts = content?.optJSONArray("parts")
-                val firstPart = parts?.optJSONObject(0)
-                val responseText = firstPart?.optString("text") ?: ""
-
-                val jsonClean = responseText.replace("```json", "").replace("```", "").trim()
+                val text = parts?.optJSONObject(0)?.optString("text") ?: ""
+                val jsonClean = text.replace("```json", "").replace("```", "").trim()
                 val jsonObj = JSONObject(jsonClean)
-                val item = jsonObj.optString("item", "").ifBlank { null }
-                val quantity = if (jsonObj.has("quantity")) jsonObj.optDouble("quantity", 1.0) else null
-                val unit = jsonObj.optString("unit", "").ifBlank { null }
-                val title = jsonObj.optString("title", item ?: "Audio Entry")
+                val title = jsonObj.optString("title", "Voice Entry")
                 val amount = jsonObj.optDouble("amount", 0.0)
                 val typeStr = jsonObj.optString("type", "EXPENSE")
                 val type = if (typeStr.uppercase() == "INCOME") TransactionType.INCOME else TransactionType.EXPENSE
-                val category = jsonObj.optString("category", "Food & Dining")
+                val category = jsonObj.optString("category", if (type == TransactionType.INCOME) "Salary & Income" else "Food & Dining")
                 val paymentMethod = jsonObj.optString("paymentMethod", "UPI")
-                val note = jsonObj.optString("note", "Audio input")
+                val note = jsonObj.optString("note", "")
+
                 ParsedVoiceExpense(
                     title = title,
-                    amount = amount,
+                    amount = if (amount > 0) amount else 100.0,
                     type = type,
                     category = category,
                     paymentMethod = paymentMethod,
-                    note = note,
-                    item = item,
-                    quantity = quantity,
-                    unit = unit
+                    note = note
                 )
             } else {
-                throw RuntimeException("Gemini API error code: ${conn.responseCode}")
+                fallbackParseVoiceCommand("Voice Transaction 100")
             }
         } catch (e: Exception) {
-            e.printStackTrace()
-            fallbackParseVoiceCommand("Audio Expense 150")
+            fallbackParseVoiceCommand("Voice Transaction 100")
         }
     }
 
@@ -309,7 +293,6 @@ object GeminiAiService {
         val lines = rawText.lines().map { it.trim() }.filter { it.isNotBlank() }
         val merchant = lines.firstOrNull { it.length > 2 && !it.startsWith("Date") && !it.startsWith("Time") } ?: "Store Purchase"
 
-        // Search for Grand Total / Total Paid / Total
         val grandTotalRegex = Regex("""(?:grand\s*total|total\s*paid|amount\s*paid|net\s*payable|total)[\s:]*[$₹€£]?\s*(\d+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
         val grandMatch = grandTotalRegex.find(rawText)
         val detectedTotal = grandMatch?.groupValues?.get(1)?.toDoubleOrNull() ?: run {
@@ -317,134 +300,76 @@ object GeminiAiService {
             numbers.maxOrNull() ?: 0.0
         }
 
-        // Subtotal
         val subtotalRegex = Regex("""(?:subtotal|sub\s*total|sub-total)[\s:]*[$₹€£]?\s*(\d+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
         val subtotal = subtotalRegex.find(rawText)?.groupValues?.get(1)?.toDoubleOrNull() ?: detectedTotal
 
-        // Tax / GST
         val taxRegex = Regex("""(?:tax|gst|vat)[\s:]*[$₹€£]?\s*(\d+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
         val tax = taxRegex.find(rawText)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
 
-        // Discount
         val discountRegex = Regex("""(?:discount|disc|saved)[\s:]*[$₹€£]?\s*(\d+(?:\.\d{1,2})?)""", RegexOption.IGNORE_CASE)
         val discount = discountRegex.find(rawText)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
 
-        // Receipt / Invoice Number
-        val invoiceRegex = Regex("""(?:inv(?:oice)?|receipt|bill|order|ref)[\s#:]*([A-Za-z0-9\-_]+)""", RegexOption.IGNORE_CASE)
-        val receiptNumber = invoiceRegex.find(rawText)?.groupValues?.get(1)
+        val dateRegex = Regex("""\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b""")
+        val detectedDate = dateRegex.find(rawText)?.value ?: "Today"
 
-        // Date
-        val dateRegex = Regex("""(\d{1,2}[-/.](?:\d{1,2}|[A-Za-z]{3})[-/.](?:\d{2,4}))""")
-        val dateStr = dateRegex.find(rawText)?.groupValues?.get(1) ?: "Today"
+        val timeRegex = Regex("""\b(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)\b""")
+        val detectedTime = timeRegex.find(rawText)?.value ?: ""
 
-        // Time
-        val timeRegex = Regex("""(\d{1,2}:\d{2}(?:\s*(?:AM|PM|am|pm))?)""")
-        val timeStr = timeRegex.find(rawText)?.groupValues?.get(1) ?: ""
-
-        val lower = rawText.lowercase()
         val category = when {
-            lower.contains("cafe") || lower.contains("coffee") || lower.contains("restaurant") || 
-            lower.contains("burger") || lower.contains("pizza") || lower.contains("food") || lower.contains("swiggy") || lower.contains("zomato") -> "Food & Dining"
-            lower.contains("pharmacy") || lower.contains("med") || lower.contains("hospital") || lower.contains("clinic") -> "Healthcare"
-            lower.contains("fuel") || lower.contains("petrol") || lower.contains("gas") || lower.contains("diesel") || lower.contains("uber") || lower.contains("ola") -> "Transportation"
-            lower.contains("bill") || lower.contains("electricity") || lower.contains("internet") || lower.contains("water") -> "Bills & Utilities"
+            rawText.contains("restaurant", ignoreCase = true) || rawText.contains("cafe", ignoreCase = true) ||
+            rawText.contains("kitchen", ignoreCase = true) || rawText.contains("bistro", ignoreCase = true) -> "Food & Dining"
+            rawText.contains("fuel", ignoreCase = true) || rawText.contains("petrol", ignoreCase = true) -> "Transportation"
+            rawText.contains("pharmacy", ignoreCase = true) || rawText.contains("medical", ignoreCase = true) -> "Healthcare"
             else -> "Shopping"
         }
 
         val paymentMethod = when {
-            lower.contains("upi") || lower.contains("gpay") || lower.contains("phonepe") || lower.contains("paytm") -> "UPI"
-            lower.contains("cash") -> "Cash"
-            lower.contains("card") || lower.contains("visa") || lower.contains("mastercard") || lower.contains("debit") || lower.contains("credit") -> "Card"
+            rawText.contains("upi", ignoreCase = true) || rawText.contains("gpay", ignoreCase = true) -> "UPI"
+            rawText.contains("cash", ignoreCase = true) -> "Cash"
+            rawText.contains("card", ignoreCase = true) || rawText.contains("visa", ignoreCase = true) -> "Card"
             else -> "UPI"
         }
 
-        // Extract item rows
-        val itemsList = mutableListOf<ParsedReceiptItem>()
-        val itemPattern = Regex("""^([A-Za-z0-9\s&'-]+?)(?:\s+(\d+)\s*[xX@]\s*[$₹€£]?\s*(\d+(?:\.\d{1,2})?))?\s+[$₹€£]?\s*(\d+(?:\.\d{1,2})?)$""")
-
-        for (line in lines) {
-            val lowerLine = line.lowercase()
-            if (lowerLine.contains("total") || lowerLine.contains("tax") || lowerLine.contains("subtotal") || 
-                lowerLine.contains("discount") || lowerLine.contains("cash") || lowerLine.contains("change") || 
-                lowerLine.contains("thank you") || lowerLine.contains("invoice") || lowerLine.contains("date")) {
-                continue
-            }
-            val match = itemPattern.find(line)
-            if (match != null) {
-                val name = match.groupValues[1].trim()
-                val qty = match.groupValues[2].toDoubleOrNull() ?: 1.0
-                val unitPrice = match.groupValues[3].toDoubleOrNull() ?: (match.groupValues[4].toDoubleOrNull() ?: 0.0) / qty
-                val lineTotal = match.groupValues[4].toDoubleOrNull() ?: (qty * unitPrice)
-                if (name.length > 1 && lineTotal > 0) {
-                    itemsList.add(ParsedReceiptItem(name, qty, unitPrice, lineTotal))
-                }
-            }
-        }
-
-        // If line items couldn't be regex parsed individually, parse any lines with prices
-        if (itemsList.isEmpty()) {
-            val priceLineRegex = Regex("""^(.+?)\s+[$₹€£]?\s*(\d+\.\d{2})$""")
-            for (line in lines) {
-                val lowerLine = line.lowercase()
-                if (lowerLine.contains("total") || lowerLine.contains("tax") || lowerLine.contains("subtotal") || 
-                    lowerLine.contains("discount") || lowerLine.contains("date") || lowerLine.contains("card")) continue
-                val m = priceLineRegex.find(line)
-                if (m != null) {
-                    val name = m.groupValues[1].trim()
-                    val price = m.groupValues[2].toDoubleOrNull() ?: 0.0
-                    if (name.length > 2 && price > 0) {
-                        itemsList.add(ParsedReceiptItem(name = name, quantity = 1.0, unitPrice = price, totalPrice = price))
-                    }
-                }
-            }
-        }
-
-        if (itemsList.isEmpty() && detectedTotal > 0) {
-            itemsList.add(ParsedReceiptItem(name = merchant, quantity = 1.0, unitPrice = detectedTotal, totalPrice = detectedTotal))
-        }
-
-        val itemsSummary = itemsList.joinToString(", ") { it.name }.ifBlank { "Receipt items" }
-
         return ParsedReceipt(
             merchantName = merchant,
-            receiptNumber = receiptNumber,
+            receiptNumber = null,
             totalAmount = detectedTotal,
-            subtotal = if (subtotal > 0) subtotal else detectedTotal,
+            subtotal = subtotal,
             discount = discount,
             tax = tax,
             category = category,
-            dateString = dateStr,
-            timeString = timeStr,
+            dateString = detectedDate,
+            timeString = detectedTime,
             paymentMethod = paymentMethod,
-            itemsSummary = itemsSummary,
-            items = itemsList,
+            itemsSummary = "Scanned Purchase",
+            items = emptyList(),
             rawText = rawText
         )
     }
 
     suspend fun getFinancialCoachAdvice(totalIncome: Double, totalExpense: Double, topExpenseCategory: String): String = withContext(Dispatchers.IO) {
         val apiKey = try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" }
-        val prompt = "User status: Monthly Income = $totalIncome, Monthly Expense = $totalExpense, Top Category = '$topExpenseCategory'. Provide 3 concise, practical financial recommendations."
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            val savingsRate = if (totalIncome > 0) (((totalIncome - totalExpense) / totalIncome) * 100).toInt() else 0
-            return@withContext "• **Savings Velocity**: Your net savings rate is currently ~${savingsRate.coerceAtLeast(0)}%. Strive for the 20%+ recommended target.\n• **Category Watch**: Highest spend is in **$topExpenseCategory**. Consider setting an active weekly budget limit.\n• **Rule of 50/30/20**: Direct 50% to essential needs, 30% to lifestyle, and 20% into savings & investments."
+            return@withContext "Aim to save at least 20% of your income each month. Keep non-essential expenses in $topExpenseCategory measured to build a strong savings cushion."
         }
         try {
-            val systemInstruction = "You are Zenith AI Financial Advisor. Provide inspiring, concise, bullet-pointed financial coaching advice."
-            callGeminiApi(apiKey, systemInstruction, prompt)
+            val systemInstruction = "You are an empathetic financial coach. Provide a concise, actionable 2-sentence piece of financial advice in English based on the user's spending."
+            val prompt = "Monthly Income: ₹$totalIncome, Total Expenses: ₹$totalExpense, Top Expense Category: $topExpenseCategory. Give 2 crisp tips."
+            val response = callGeminiApi(apiKey, systemInstruction, prompt)
+            response.trim().ifBlank { "Track your recurring bills carefully and build an emergency fund of 3-6 months expenses." }
         } catch (e: Exception) {
-            "• **Consistent Tracking**: Recording every transaction prevents cash leaks by up to 15%.\n• **Subscription Audit**: Check recurring payments to cancel unused memberships.\n• **Emergency Fund**: Maintain a 3-month living expense reserve in high-yield liquid savings."
+            "Maintain a healthy balance by directing discretionary spending toward your savings goals."
         }
     }
 
     private fun callGeminiApi(apiKey: String, systemInstruction: String, promptText: String): String {
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey")
+        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
         conn.doOutput = true
-        conn.connectTimeout = 3500
-        conn.readTimeout = 4500
+        conn.connectTimeout = 4000
+        conn.readTimeout = 5000
 
         val requestPayload = JSONObject().apply {
             put("systemInstruction", JSONObject().apply {
@@ -452,11 +377,12 @@ object GeminiAiService {
             })
             put("generationConfig", JSONObject().apply {
                 put("temperature", 0.1)
-                put("maxOutputTokens", 256)
-                put("responseMimeType", "application/json")
+                put("maxOutputTokens", 512)
             })
             put("contents", JSONArray().put(JSONObject().apply {
-                put("parts", JSONArray().put(JSONObject().apply { put("text", promptText) }))
+                put("parts", JSONArray().apply {
+                    put(JSONObject().apply { put("text", promptText) })
+                })
             }))
         }
 
@@ -479,406 +405,255 @@ object GeminiAiService {
         }
     }
 
-    // --- Offline NLP Rule-Based Tamil, Tanglish & English Parser ---
+    // --- Fast English Rule-Based Fallback Parser ---
 
     private data class ItemMeta(
         val standardName: String,
         val category: String,
-        val defaultUnitPrice: Double,
-        val defaultUnit: String
+        val defaultAmount: Double
     )
 
-    private val TAMIL_NUMBER_MAP: Map<String, Double> = mapOf(
-        // Pure Tamil script numbers
-        "ஒன்று" to 1.0, "ஒன்னு" to 1.0, "ஒரு" to 1.0, "ஓர்" to 1.0,
-        "இரண்டு" to 2.0, "ரெண்டு" to 2.0, "இரு" to 2.0,
-        "மூன்று" to 3.0, "மூணு" to 3.0,
-        "நான்கு" to 4.0, "நாலு" to 4.0,
-        "ஐந்து" to 5.0, "அஞ்சு" to 5.0,
-        "ஆறு" to 6.0,
-        "ஏழு" to 7.0,
-        "எட்டு" to 8.0,
-        "ஒன்பது" to 9.0,
-        "பத்து" to 10.0,
-        "பதினொன்று" to 11.0, "பதினொன்னு" to 11.0,
-        "பன்னிரண்டு" to 12.0, "பனிரெண்டு" to 12.0,
-        "பதின்மூன்று" to 13.0, "பதின்மூணு" to 13.0,
-        "பதினான்கு" to 14.0, "பதினாலு" to 14.0,
-        "பதினைந்து" to 15.0, "பதினஞ்சு" to 15.0,
-        "இருபது" to 20.0, "இருபத்தி" to 20.0,
-        "இருபத்தைந்து" to 25.0, "இருபத்தஞ்சு" to 25.0,
-        "முப்பது" to 30.0, "முப்பத்தி" to 30.0,
-        "நாற்பது" to 40.0, "நாப்பத்தி" to 40.0,
-        "ஐம்பது" to 50.0, "அம்பது" to 50.0, "ஐம்பத்தி" to 50.0,
-        "அறுபது" to 60.0,
-        "எழுபது" to 70.0,
-        "எண்பது" to 80.0,
-        "தொண்ணூறு" to 90.0,
-        "நூறு" to 100.0, "நூத்தி" to 100.0,
-        "இருநூறு" to 200.0,
-        "முந்நூறு" to 300.0,
-        "நாநூறு" to 400.0,
-        "ஐந்நூறு" to 500.0,
-        "ஆயிரம்" to 1000.0,
-        
-        // Tanglish numbers (Romanized Tamil)
-        "onnu" to 1.0, "ondru" to 1.0, "oru" to 1.0, "one" to 1.0,
-        "rendu" to 2.0, "irandu" to 2.0, "two" to 2.0,
-        "moonu" to 3.0, "moondru" to 3.0, "three" to 3.0,
-        "naalu" to 4.0, "naangu" to 4.0, "four" to 4.0,
-        "anju" to 5.0, "ainthu" to 5.0, "five" to 5.0,
-        "aaru" to 6.0, "six" to 6.0,
-        "ezhu" to 7.0, "seven" to 7.0,
-        "ettu" to 8.0, "eight" to 8.0,
-        "onbathu" to 9.0, "ompathu" to 9.0, "nine" to 9.0,
-        "pathu" to 10.0, "ten" to 10.0,
-        "pathinonnu" to 11.0, "eleven" to 11.0,
-        "pannirendu" to 12.0, "twelve" to 12.0, "dozen" to 12.0,
-        "pathinanju" to 15.0, "fifteen" to 15.0,
-        "irubathu" to 20.0, "irubadhu" to 20.0, "iruvathu" to 20.0, "twenty" to 20.0,
-        "irubathi anju" to 25.0, "iruvathi anju" to 25.0, "twenty five" to 25.0,
-        "muppathu" to 30.0, "thirty" to 30.0,
-        "naarpathu" to 40.0, "naappathu" to 40.0, "forty" to 40.0,
-        "aimbathu" to 50.0, "aimbadhu" to 50.0, "ambadhu" to 50.0, "fifty" to 50.0,
-        "arubathu" to 60.0, "sixty" to 60.0,
-        "ezhubathu" to 70.0, "seventy" to 70.0,
-        "enbathu" to 80.0, "eighty" to 80.0,
-        "thonnooru" to 90.0, "ninety" to 90.0,
-        "nooru" to 100.0, "hundred" to 100.0,
-        "irunooru" to 200.0,
-        "ainnooru" to 500.0,
-        "aayiram" to 1000.0, "thousand" to 1000.0
-    )
+    private val ENGLISH_ITEM_DICTIONARY = mapOf(
+        // Income & Investments
+        "salary" to ItemMeta("Monthly Salary", "Salary & Income", 35000.0),
+        "sambalam" to ItemMeta("Monthly Salary", "Salary & Income", 35000.0),
+        "freelance" to ItemMeta("Freelance Payment", "Salary & Income", 10000.0),
+        "bonus" to ItemMeta("Bonus", "Salary & Income", 5000.0),
+        "stipend" to ItemMeta("Stipend", "Salary & Income", 8000.0),
+        "allowance" to ItemMeta("Allowance", "Salary & Income", 3000.0),
+        "cashback" to ItemMeta("Cashback", "Investments", 200.0),
+        "dividend" to ItemMeta("Dividend", "Investments", 1000.0),
+        "interest" to ItemMeta("Interest Income", "Investments", 500.0),
+        "mutual fund" to ItemMeta("Mutual Fund SIP", "Investments", 2500.0),
+        "stocks" to ItemMeta("Stock Investment", "Investments", 5000.0),
 
-    private val UNIT_KEYWORDS: Map<String, String> = mapOf(
-        "கிலோ" to "kg", "kilo" to "kg", "kg" to "kg", "kgs" to "kg",
-        "கிராம்" to "g", "gram" to "g", "gm" to "g", "gms" to "g",
-        "லிட்டர்" to "L", "லிட்" to "L", "litre" to "L", "liter" to "L", "lit" to "L", "l" to "L",
-        "பாக்கெட்" to "pkt", "பாக்கட்" to "pkt", "packet" to "pkt", "packets" to "pkt", "pkt" to "pkt",
-        "பீஸ்" to "pcs", "பீசு" to "pcs", "piece" to "pcs", "pieces" to "pcs", "pcs" to "pcs",
-        "கட்டு" to "bunch", "kattu" to "bunch", "bunch" to "bunch",
-        "டஜன்" to "dozen", "dozen" to "dozen",
-        "டிக்கெட்" to "ticket", "டிக்கட்" to "ticket", "ticket" to "ticket", "tickets" to "ticket",
-        "கப்" to "cup", "cup" to "cup", "cups" to "cup",
-        "பாட்டில்" to "bottle", "bottle" to "bottle", "bottles" to "bottle"
-    )
+        // Food & Dining / Delivery
+        "swiggy" to ItemMeta("Swiggy Order", "Food & Dining", 350.0),
+        "zomato" to ItemMeta("Zomato Order", "Food & Dining", 380.0),
+        "lunch" to ItemMeta("Lunch", "Food & Dining", 200.0),
+        "dinner" to ItemMeta("Dinner", "Food & Dining", 350.0),
+        "breakfast" to ItemMeta("Breakfast", "Food & Dining", 100.0),
+        "saapadu" to ItemMeta("Food & Dining", "Food & Dining", 150.0),
+        "kaalaila" to ItemMeta("Morning Breakfast", "Food & Dining", 80.0),
+        "mathiyam" to ItemMeta("Afternoon Lunch", "Food & Dining", 150.0),
+        "iravu" to ItemMeta("Night Dinner", "Food & Dining", 180.0),
+        "hotel" to ItemMeta("Restaurant Dining", "Food & Dining", 450.0),
+        "coffee" to ItemMeta("Coffee", "Food & Dining", 80.0),
+        "tea" to ItemMeta("Tea", "Food & Dining", 20.0),
+        "chai" to ItemMeta("Chai", "Food & Dining", 20.0),
+        "pizza" to ItemMeta("Pizza", "Food & Dining", 400.0),
+        "burger" to ItemMeta("Burger", "Food & Dining", 180.0),
+        "biryani" to ItemMeta("Biryani", "Food & Dining", 250.0),
+        "snacks" to ItemMeta("Snacks", "Food & Dining", 120.0),
+        "bakery" to ItemMeta("Bakery Items", "Food & Dining", 150.0),
 
-    private val ITEM_DICTIONARY: Map<String, ItemMeta> = mapOf(
-        // Entertainment & Movies (Tamil & Tanglish)
-        "movie" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "cinema" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "theater" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "theatre" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "padam" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "padathukku" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "படம்" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "படத்திற்கு" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "படத்துக்கு" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "சினிமா" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
-        "திரையரங்கம்" to ItemMeta("Movie", "Entertainment", 250.0, "ticket"),
+        // Shopping & Quick Commerce
+        "groceries" to ItemMeta("Groceries", "Shopping", 600.0),
+        "grocery" to ItemMeta("Groceries", "Shopping", 600.0),
+        "blinkit" to ItemMeta("Blinkit Groceries", "Shopping", 450.0),
+        "zepto" to ItemMeta("Zepto Groceries", "Shopping", 350.0),
+        "instamart" to ItemMeta("Instamart Delivery", "Shopping", 400.0),
+        "bigbasket" to ItemMeta("BigBasket Groceries", "Shopping", 1200.0),
+        "dunzo" to ItemMeta("Dunzo Delivery", "Shopping", 250.0),
+        "supermarket" to ItemMeta("Supermarket", "Shopping", 800.0),
+        "dmart" to ItemMeta("D-Mart Shopping", "Shopping", 1500.0),
+        "d-mart" to ItemMeta("D-Mart Shopping", "Shopping", 1500.0),
+        "reliance fresh" to ItemMeta("Reliance Fresh", "Shopping", 900.0),
+        "kadai" to ItemMeta("Store Purchase", "Shopping", 300.0),
+        "maligai" to ItemMeta("Provisions / Maligai", "Shopping", 800.0),
+        "vegetables" to ItemMeta("Vegetables", "Shopping", 150.0),
+        "fruits" to ItemMeta("Fruits", "Shopping", 200.0),
+        "apple" to ItemMeta("Apples", "Shopping", 120.0),
+        "onion" to ItemMeta("Onions", "Shopping", 60.0),
+        "tomato" to ItemMeta("Tomatoes", "Shopping", 40.0),
+        "milk" to ItemMeta("Milk", "Food & Dining", 35.0),
+        "bread" to ItemMeta("Bread & Dairy", "Food & Dining", 45.0),
+        "eggs" to ItemMeta("Eggs", "Food & Dining", 70.0),
+        "chicken" to ItemMeta("Chicken", "Food & Dining", 220.0),
+        "mutton" to ItemMeta("Mutton", "Food & Dining", 800.0),
+        "fish" to ItemMeta("Fish", "Food & Dining", 350.0),
+        "amazon" to ItemMeta("Amazon Shopping", "Shopping", 1200.0),
+        "flipkart" to ItemMeta("Flipkart Shopping", "Shopping", 1100.0),
+        "myntra" to ItemMeta("Myntra Fashion", "Shopping", 1500.0),
+        "meesho" to ItemMeta("Meesho Order", "Shopping", 500.0),
+        "clothes" to ItemMeta("Clothing", "Shopping", 1800.0),
+        "shoes" to ItemMeta("Footwear", "Shopping", 1400.0),
 
-        // Vegetables & Groceries (Tamil & Tanglish)
-        "தக்காளி" to ItemMeta("Tomato", "Shopping", 5.0, "pcs"),
-        "thakkali" to ItemMeta("Tomato", "Shopping", 5.0, "pcs"),
-        "tomato" to ItemMeta("Tomato", "Shopping", 5.0, "pcs"),
-        "tomatoes" to ItemMeta("Tomato", "Shopping", 5.0, "pcs"),
+        // Transportation & Rides
+        "rapido" to ItemMeta("Rapido Ride", "Transportation", 75.0),
+        "uber" to ItemMeta("Uber Ride", "Transportation", 250.0),
+        "ola" to ItemMeta("Ola Ride", "Transportation", 200.0),
+        "cab" to ItemMeta("Cab Ride", "Transportation", 250.0),
+        "auto" to ItemMeta("Auto Fare", "Transportation", 100.0),
+        "bus" to ItemMeta("Bus Ticket", "Transportation", 50.0),
+        "train" to ItemMeta("Train Ticket", "Transportation", 300.0),
+        "irctc" to ItemMeta("IRCTC Train Booking", "Transportation", 650.0),
+        "flight" to ItemMeta("Flight Ticket", "Transportation", 4500.0),
+        "metro" to ItemMeta("Metro Fare", "Transportation", 40.0),
+        "petrol" to ItemMeta("Petrol / Fuel", "Transportation", 500.0),
+        "fuel" to ItemMeta("Fuel", "Transportation", 500.0),
+        "diesel" to ItemMeta("Diesel", "Transportation", 1000.0),
+        "vandi" to ItemMeta("Vehicle Maintenance / Fuel", "Transportation", 400.0),
+        "parking" to ItemMeta("Parking Fee", "Transportation", 50.0),
+        "toll" to ItemMeta("Highway Toll", "Transportation", 120.0),
 
-        "வெங்காயம்" to ItemMeta("Onion", "Shopping", 30.0, "kg"),
-        "vengayam" to ItemMeta("Onion", "Shopping", 30.0, "kg"),
-        "onion" to ItemMeta("Onion", "Shopping", 30.0, "kg"),
-        "onions" to ItemMeta("Onion", "Shopping", 30.0, "kg"),
+        // Entertainment
+        "movie" to ItemMeta("Movie Tickets", "Entertainment", 350.0),
+        "cinema" to ItemMeta("Cinema", "Entertainment", 350.0),
+        "bookmyshow" to ItemMeta("BookMyShow Movie Tickets", "Entertainment", 450.0),
+        "netflix" to ItemMeta("Netflix Subscription", "Entertainment", 649.0),
+        "spotify" to ItemMeta("Spotify Subscription", "Entertainment", 119.0),
+        "prime" to ItemMeta("Amazon Prime", "Entertainment", 299.0),
+        "hotstar" to ItemMeta("Disney Hotstar", "Entertainment", 299.0),
+        "youtube" to ItemMeta("YouTube Premium", "Entertainment", 149.0),
 
-        "உருளைக்கிழங்கு" to ItemMeta("Potato", "Shopping", 25.0, "kg"),
-        "urulaikilangu" to ItemMeta("Potato", "Shopping", 25.0, "kg"),
-        "urulaikizhangu" to ItemMeta("Potato", "Shopping", 25.0, "kg"),
-        "potato" to ItemMeta("Potato", "Shopping", 25.0, "kg"),
-        "potatoes" to ItemMeta("Potato", "Shopping", 25.0, "kg"),
+        // Utilities & Bills
+        "electricity" to ItemMeta("Electricity Bill", "Bills & Utilities", 1200.0),
+        "power bill" to ItemMeta("Electricity Bill", "Bills & Utilities", 1200.0),
+        "current bill" to ItemMeta("Electricity Bill", "Bills & Utilities", 1200.0),
+        "tneb" to ItemMeta("TNEB Power Bill", "Bills & Utilities", 1400.0),
+        "bescom" to ItemMeta("BESCOM Electricity", "Bills & Utilities", 1300.0),
+        "water" to ItemMeta("Water Bill", "Bills & Utilities", 300.0),
+        "gas" to ItemMeta("Gas Cylinder", "Bills & Utilities", 950.0),
+        "cylinder" to ItemMeta("LPG Gas Cylinder", "Bills & Utilities", 950.0),
+        "indane" to ItemMeta("Indane Gas", "Bills & Utilities", 950.0),
+        "wifi" to ItemMeta("Wi-Fi / Internet Bill", "Bills & Utilities", 800.0),
+        "internet" to ItemMeta("Internet Bill", "Bills & Utilities", 800.0),
+        "airtel" to ItemMeta("Airtel Bill / Recharge", "Bills & Utilities", 499.0),
+        "jio" to ItemMeta("Jio Bill / Recharge", "Bills & Utilities", 399.0),
+        "vi" to ItemMeta("Vodafone Idea Recharge", "Bills & Utilities", 349.0),
+        "recharge" to ItemMeta("Mobile Recharge", "Bills & Utilities", 299.0),
+        "mobile" to ItemMeta("Mobile Bill", "Bills & Utilities", 399.0),
 
-        "ஆப்பிள்" to ItemMeta("Apple", "Shopping", 20.0, "pcs"),
-        "apple" to ItemMeta("Apple", "Shopping", 20.0, "pcs"),
-        "apples" to ItemMeta("Apple", "Shopping", 20.0, "pcs"),
+        // Housing & Rent
+        "rent" to ItemMeta("House Rent", "Housing & Rent", 12000.0),
+        "veedu" to ItemMeta("House Rent", "Housing & Rent", 12000.0),
+        "vaadagai" to ItemMeta("House Rent", "Housing & Rent", 12000.0),
+        "maintenance" to ItemMeta("Maintenance Fee", "Housing & Rent", 2000.0),
 
-        "வாழைப்பழம்" to ItemMeta("Banana", "Shopping", 5.0, "pcs"),
-        "vazhaipazham" to ItemMeta("Banana", "Shopping", 5.0, "pcs"),
-        "banana" to ItemMeta("Banana", "Shopping", 5.0, "pcs"),
-        "bananas" to ItemMeta("Banana", "Shopping", 5.0, "pcs"),
+        // Healthcare
+        "medicine" to ItemMeta("Medicines", "Healthcare", 350.0),
+        "marundhu" to ItemMeta("Medicines / Pharmacy", "Healthcare", 350.0),
+        "pharmacy" to ItemMeta("Pharmacy", "Healthcare", 400.0),
+        "apollo" to ItemMeta("Apollo Pharmacy", "Healthcare", 450.0),
+        "medplus" to ItemMeta("Medplus Pharmacy", "Healthcare", 400.0),
+        "hospital" to ItemMeta("Medical / Doctor Fee", "Healthcare", 800.0),
+        "doctor" to ItemMeta("Doctor Consultation", "Healthcare", 500.0),
+        "gym" to ItemMeta("Gym Membership", "Healthcare", 1500.0),
+        "cult" to ItemMeta("Cult.fit Fitness", "Healthcare", 2000.0),
 
-        "பால்" to ItemMeta("Milk", "Food & Dining", 35.0, "pkt"),
-        "paal" to ItemMeta("Milk", "Food & Dining", 35.0, "pkt"),
-        "milk" to ItemMeta("Milk", "Food & Dining", 35.0, "pkt"),
-
-        "முட்டை" to ItemMeta("Eggs", "Food & Dining", 6.0, "pcs"),
-        "muttai" to ItemMeta("Eggs", "Food & Dining", 6.0, "pcs"),
-        "egg" to ItemMeta("Eggs", "Food & Dining", 6.0, "pcs"),
-        "eggs" to ItemMeta("Eggs", "Food & Dining", 6.0, "pcs"),
-
-        "அரிசி" to ItemMeta("Rice", "Shopping", 60.0, "kg"),
-        "arisi" to ItemMeta("Rice", "Shopping", 60.0, "kg"),
-        "rice" to ItemMeta("Rice", "Shopping", 60.0, "kg"),
-
-        "பருப்பு" to ItemMeta("Dal", "Shopping", 120.0, "kg"),
-        "paruppu" to ItemMeta("Dal", "Shopping", 120.0, "kg"),
-        "dal" to ItemMeta("Dal", "Shopping", 120.0, "kg"),
-        "dhal" to ItemMeta("Dal", "Shopping", 120.0, "kg"),
-
-        "எண்ணெய்" to ItemMeta("Cooking Oil", "Shopping", 140.0, "L"),
-        "ennai" to ItemMeta("Cooking Oil", "Shopping", 140.0, "L"),
-        "oil" to ItemMeta("Cooking Oil", "Shopping", 140.0, "L"),
-
-        // Food & Beverages
-        "டீ" to ItemMeta("Tea", "Food & Dining", 15.0, "cup"),
-        "தேநீர்" to ItemMeta("Tea", "Food & Dining", 15.0, "cup"),
-        "tea" to ItemMeta("Tea", "Food & Dining", 15.0, "cup"),
-        "chai" to ItemMeta("Tea", "Food & Dining", 15.0, "cup"),
-
-        "காபி" to ItemMeta("Coffee", "Food & Dining", 20.0, "cup"),
-        "coffee" to ItemMeta("Coffee", "Food & Dining", 20.0, "cup"),
-
-        "பிரியாணி" to ItemMeta("Biryani", "Food & Dining", 180.0, "pcs"),
-        "biryani" to ItemMeta("Biryani", "Food & Dining", 180.0, "pcs"),
-        "briyani" to ItemMeta("Biryani", "Food & Dining", 180.0, "pcs"),
-
-        "தோசை" to ItemMeta("Dosa", "Food & Dining", 40.0, "pcs"),
-        "dosai" to ItemMeta("Dosa", "Food & Dining", 40.0, "pcs"),
-        "dosa" to ItemMeta("Dosa", "Food & Dining", 40.0, "pcs"),
-
-        "இட்லி" to ItemMeta("Idli", "Food & Dining", 10.0, "pcs"),
-        "idli" to ItemMeta("Idli", "Food & Dining", 10.0, "pcs"),
-
-        "சப்பாத்தி" to ItemMeta("Chappathi", "Food & Dining", 30.0, "pcs"),
-        "chappathi" to ItemMeta("Chappathi", "Food & Dining", 30.0, "pcs"),
-        "roti" to ItemMeta("Chappathi", "Food & Dining", 30.0, "pcs"),
-
-        "சாப்பாடு" to ItemMeta("Lunch / Meals", "Food & Dining", 100.0, "pcs"),
-        "sappadu" to ItemMeta("Lunch / Meals", "Food & Dining", 100.0, "pcs"),
-        "meals" to ItemMeta("Lunch / Meals", "Food & Dining", 100.0, "pcs"),
-        "lunch" to ItemMeta("Lunch / Meals", "Food & Dining", 120.0, "pcs"),
-        "dinner" to ItemMeta("Dinner", "Food & Dining", 120.0, "pcs"),
-        "breakfast" to ItemMeta("Breakfast", "Food & Dining", 80.0, "pcs"),
-        "tiffin" to ItemMeta("Tiffin", "Food & Dining", 60.0, "pcs"),
-
-        "ஸ்நாக்ஸ்" to ItemMeta("Snacks", "Food & Dining", 30.0, "pcs"),
-        "snacks" to ItemMeta("Snacks", "Food & Dining", 30.0, "pcs"),
-        "samosa" to ItemMeta("Samosa", "Food & Dining", 15.0, "pcs"),
-        "biscuit" to ItemMeta("Biscuits", "Food & Dining", 30.0, "pkt"),
-        "biscuits" to ItemMeta("Biscuits", "Food & Dining", 30.0, "pkt"),
-
-        // Transport & Fuel
-        "பெட்ரோல்" to ItemMeta("Petrol / Fuel", "Transportation", 105.0, "L"),
-        "petrol" to ItemMeta("Petrol / Fuel", "Transportation", 105.0, "L"),
-        "diesel" to ItemMeta("Diesel", "Transportation", 95.0, "L"),
-        "fuel" to ItemMeta("Fuel", "Transportation", 105.0, "L"),
-
-        "ஆட்டோ" to ItemMeta("Auto Ride", "Transportation", 100.0, "trip"),
-        "auto" to ItemMeta("Auto Ride", "Transportation", 100.0, "trip"),
-        "uber" to ItemMeta("Cab Ride", "Transportation", 200.0, "trip"),
-        "ola" to ItemMeta("Cab Ride", "Transportation", 200.0, "trip"),
-        "rapido" to ItemMeta("Bike Taxi", "Transportation", 50.0, "trip"),
-        "cab" to ItemMeta("Cab Ride", "Transportation", 200.0, "trip"),
-
-        // Groceries & General Items
-        "மளிகை" to ItemMeta("Groceries", "Shopping", 300.0, "basket"),
-        "maligai" to ItemMeta("Groceries", "Shopping", 300.0, "basket"),
-        "groceries" to ItemMeta("Groceries", "Shopping", 300.0, "basket"),
-        "provision" to ItemMeta("Groceries", "Shopping", 300.0, "basket"),
-
-        "காய்கறி" to ItemMeta("Vegetables", "Shopping", 150.0, "basket"),
-        "kaaikari" to ItemMeta("Vegetables", "Shopping", 150.0, "basket"),
-        "vegetables" to ItemMeta("Vegetables", "Shopping", 150.0, "basket"),
-        "veggies" to ItemMeta("Vegetables", "Shopping", 150.0, "basket"),
-
-        "பழங்கள்" to ItemMeta("Fruits", "Shopping", 150.0, "basket"),
-        "pazhangal" to ItemMeta("Fruits", "Shopping", 150.0, "basket"),
-        "fruits" to ItemMeta("Fruits", "Shopping", 150.0, "basket"),
-
-        "சோப்பு" to ItemMeta("Soap", "Shopping", 40.0, "pcs"),
-        "soap" to ItemMeta("Soap", "Shopping", 40.0, "pcs"),
-        "shampoo" to ItemMeta("Shampoo", "Shopping", 120.0, "bottle"),
-
-        "மருந்து" to ItemMeta("Medicines", "Healthcare", 150.0, "pcs"),
-        "medicine" to ItemMeta("Medicines", "Healthcare", 150.0, "pcs"),
-        "tablet" to ItemMeta("Medicines", "Healthcare", 80.0, "pcs"),
-        "pharmacy" to ItemMeta("Medicines", "Healthcare", 200.0, "pcs"),
-
-        "மின் கட்டணம்" to ItemMeta("Electricity Bill", "Bills & Utilities", 500.0, "bill"),
-        "electricity" to ItemMeta("Electricity Bill", "Bills & Utilities", 500.0, "bill"),
-        "eb bill" to ItemMeta("Electricity Bill", "Bills & Utilities", 500.0, "bill"),
-        "current bill" to ItemMeta("Electricity Bill", "Bills & Utilities", 500.0, "bill"),
-
-        "ரீசார்ஜ்" to ItemMeta("Mobile / Wifi Recharge", "Bills & Utilities", 299.0, "bill"),
-        "recharge" to ItemMeta("Mobile / Wifi Recharge", "Bills & Utilities", 299.0, "bill"),
-        "wifi" to ItemMeta("Wifi Bill", "Bills & Utilities", 799.0, "bill"),
-
-        "வாடகை" to ItemMeta("House Rent", "Housing & Rent", 10000.0, "month"),
-        "rent" to ItemMeta("House Rent", "Housing & Rent", 10000.0, "month"),
-
-        "சம்பளம்" to ItemMeta("Monthly Salary", "Salary & Income", 25000.0, "month"),
-        "salary" to ItemMeta("Monthly Salary", "Salary & Income", 25000.0, "month"),
-        "income" to ItemMeta("Income", "Salary & Income", 10000.0, "month"),
-        "freelance" to ItemMeta("Freelance Payment", "Salary & Income", 5000.0, "project")
+        // Education
+        "books" to ItemMeta("Books", "Education", 450.0),
+        "course" to ItemMeta("Course / Tuition", "Education", 2500.0),
+        "tuition" to ItemMeta("Tuition Fee", "Education", 1500.0),
+        "school" to ItemMeta("School Fees", "Education", 8000.0),
+        "college" to ItemMeta("College Fees", "Education", 25000.0)
     )
 
     fun fallbackParseVoiceCommand(prompt: String): ParsedVoiceExpense {
         val lower = prompt.lowercase().trim()
-        
-        // Income detection (English + Tamil + Tanglish)
-        val isIncome = lower.contains("salary") || lower.contains("received") || 
-                       lower.contains("earned") || lower.contains("income") || 
-                       lower.contains("got paid") || lower.contains("vanthuchu") ||
-                       lower.contains("vandoo") || lower.contains("credit") || 
-                       lower.contains("bonus") || lower.contains("freelance") ||
-                       lower.contains("சம்பளம்") || lower.contains("வந்தது") || lower.contains("வருமானம்")
-        
+
+        // 1. Scope Detection (Family Vault vs Personal)
+        val isFamilyScope = lower.contains("family") || lower.contains("shared") ||
+            lower.contains("vault") || lower.contains("household") ||
+            lower.contains("split") || lower.contains("joint") ||
+            lower.contains("our ") || lower.endsWith("our")
+        val scope = if (isFamilyScope) FinanceScope.FAMILY else FinanceScope.PERSONAL
+
+        // 2. Explicit Income vs Expense Detection
+        val isCreditCard = lower.contains("credit card") || lower.contains("credit-card")
+        val isIncome = !isCreditCard && (
+            lower.contains("salary") || lower.contains("sambalam") ||
+            lower.contains("varavu") || lower.contains("received") ||
+            lower.contains("earned") || lower.contains("income") ||
+            lower.contains("got paid") || lower.contains("credited") ||
+            lower.contains("bonus") || lower.contains("cashback") ||
+            lower.contains("freelance") || lower.contains("refund") ||
+            lower.contains("dividend") || lower.contains("allowance") ||
+            lower.contains("stipend") || lower.contains("panam vanthuchu") ||
+            lower.contains("kaasu vanthuchu")
+        )
+
         val type = if (isIncome) TransactionType.INCOME else TransactionType.EXPENSE
 
-        // Payment method extraction
+        // 3. Payment Method Extraction
         val paymentMethod = when {
             lower.contains("upi") || lower.contains("gpay") || lower.contains("google pay") ||
             lower.contains("phonepe") || lower.contains("paytm") || lower.contains("scan") ||
-            lower.contains("qr") -> "UPI"
-            lower.contains("cash") || lower.contains("பணம்") -> "Cash"
-            lower.contains("credit") || lower.contains("cc") -> "Credit Card"
-            lower.contains("debit") || lower.contains("card") -> "Debit Card"
+            lower.contains("qr") || lower.contains("bhim") -> "UPI"
+            lower.contains("cash") -> "Cash"
+            lower.contains("credit card") || lower.contains("credit") || lower.contains("cc") -> "Credit Card"
+            lower.contains("debit card") || lower.contains("debit") || lower.contains("card") -> "Debit Card"
             lower.contains("bank") || lower.contains("transfer") || lower.contains("netbanking") ||
             lower.contains("neft") || lower.contains("imps") -> "Bank Transfer"
             else -> "UPI"
         }
 
-        // Clean tokens
-        val rawTokens = lower.split(Regex("""[\s,]+""")).map { it.trim().trim('.', '!', '?', ':', ';', '₹', '$') }.filter { it.isNotBlank() }
-
-        // 1. Detect Item Match
-        var matchedItemMeta: ItemMeta? = null
-        var matchedItemWord = ""
-        for ((key, meta) in ITEM_DICTIONARY) {
-            if (lower.contains(key)) {
-                if (key.length > matchedItemWord.length) {
-                    matchedItemWord = key
-                    matchedItemMeta = meta
-                }
-            }
-        }
-
-        // 2. Detect Unit Match (Token-based)
-        var detectedUnit: String? = null
-        for (token in rawTokens) {
-            if (UNIT_KEYWORDS.containsKey(token)) {
-                detectedUnit = UNIT_KEYWORDS[token]
-                break
-            }
-        }
-
-        // 3. Extract explicit price markers (e.g. "50 rs", "60 ரூபாய்", "250 rupees", "₹500", "250 selavu", "250 செலவு")
-        val priceMarkerRegex = Regex("""(?:[$₹€£]|rs|rupees|rubai|roobai|ரூபாய்|gpay|phonepe|paid|spent|cost|selavu|selavachu|selavu aachu|செலவு)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*(?:rs|rupees|rubai|roobai|ரூபாய்|selavu|selavachu|selavu aachu|செலவு)""", RegexOption.IGNORE_CASE)
-        val priceMatch = priceMarkerRegex.find(lower)
-        var explicitPrice: Double? = null
-        if (priceMatch != null) {
-            val pVal = (priceMatch.groupValues[1].ifBlank { priceMatch.groupValues[2] }).toDoubleOrNull()
-            if (pVal != null) {
-                explicitPrice = pVal
-            }
-        }
-
-        // 4. Token-by-token number scanning (handles Tamil, Tanglish and digit numbers)
-        val extractedNumbers = mutableListOf<Double>()
-        var i = 0
-        while (i < rawTokens.size) {
-            val token = rawTokens[i]
-            
-            // Check two-word number (e.g. "இருபத்தி அஞ்சு")
-            if (i + 1 < rawTokens.size) {
-                val twoWord = "$token ${rawTokens[i + 1]}"
-                if (TAMIL_NUMBER_MAP.containsKey(twoWord)) {
-                    extractedNumbers.add(TAMIL_NUMBER_MAP[twoWord]!!)
-                    i += 2
-                    continue
-                }
-            }
-            
-            if (TAMIL_NUMBER_MAP.containsKey(token)) {
-                extractedNumbers.add(TAMIL_NUMBER_MAP[token]!!)
-            } else {
-                val num = token.toDoubleOrNull()
-                if (num != null) {
-                    extractedNumbers.add(num)
-                }
-            }
-            i++
-        }
-
-        var detectedQuantity: Double? = null
+        // 4. Amount Extraction (Handling 'k', 'thousand', 'lakh', 'crore' multipliers)
         var detectedAmount: Double? = null
 
-        if (extractedNumbers.size >= 2) {
-            val first = extractedNumbers[0]
-            val second = extractedNumbers[1]
-            if (explicitPrice != null) {
-                detectedAmount = explicitPrice
-                detectedQuantity = if (first == explicitPrice) second else first
-            } else {
-                detectedQuantity = first
-                detectedAmount = second
+        val multiplierRegex = Regex("""(?:(?:[$₹€£]|rs|rupees|inr|paid|spent|cost|of)\s*)?(\d+(?:\.\d+)?)\s*(k|thousand|lakh|lakhs|lac|lacs|crore|crores|cr)\b""", RegexOption.IGNORE_CASE)
+        val multMatch = multiplierRegex.find(lower)
+        if (multMatch != null) {
+            val base = multMatch.groupValues[1].toDoubleOrNull() ?: 0.0
+            val unit = multMatch.groupValues[2].lowercase()
+            val mult = when {
+                unit == "k" || unit == "thousand" -> 1000.0
+                unit.startsWith("la") -> 100000.0
+                unit.startsWith("cr") -> 10000000.0
+                else -> 1.0
             }
-        } else if (extractedNumbers.size == 1) {
-            val num = extractedNumbers[0]
-            if (explicitPrice != null) {
-                detectedAmount = explicitPrice
-                detectedQuantity = 1.0
-            } else if (matchedItemMeta != null) {
-                // If the number is likely a quantity (e.g. "5 apples", "pathu thakkali", "2 kg onion")
-                if (lower.startsWith("add ") || lower.contains(" kg") || lower.contains(" kilo") || lower.contains(" litre") || num <= 50) {
-                    detectedQuantity = num
-                    detectedAmount = num * matchedItemMeta.defaultUnitPrice
-                } else {
-                    // e.g. "250 lunch" or "500 petrol"
-                    detectedAmount = num
-                    detectedQuantity = 1.0
+            if (base > 0) {
+                detectedAmount = base * mult
+            }
+        }
+
+        if (detectedAmount == null || detectedAmount <= 0.0) {
+            val amountRegex = Regex("""(?:[$₹€£]|rs|rupees|inr|paid|spent|cost|of)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*(?:rs|rupees|inr|bucks)?""", RegexOption.IGNORE_CASE)
+            val allNumbers = Regex("""\b\d+(?:\.\d{1,2})?\b""").findAll(lower).mapNotNull { it.value.toDoubleOrNull() }.toList()
+
+            val match = amountRegex.find(lower)
+            if (match != null) {
+                val num1 = match.groupValues[1].toDoubleOrNull()
+                val num2 = match.groupValues[2].toDoubleOrNull()
+                detectedAmount = num1 ?: num2
+            }
+            if (detectedAmount == null || detectedAmount <= 0.0) {
+                detectedAmount = allNumbers.maxOrNull()
+            }
+        }
+
+        // 5. Item and Category Matching
+        var matchedMeta: ItemMeta? = null
+        var bestKeyword = ""
+        for ((key, meta) in ENGLISH_ITEM_DICTIONARY) {
+            if (lower.contains(key)) {
+                if (key.length > bestKeyword.length) {
+                    bestKeyword = key
+                    matchedMeta = meta
                 }
-            } else {
-                detectedAmount = num
-                detectedQuantity = 1.0
             }
         }
 
-        val finalQuantity = detectedQuantity ?: 1.0
-        val finalUnit = detectedUnit ?: matchedItemMeta?.defaultUnit ?: "pcs"
-        val finalItem = matchedItemMeta?.standardName
-        val finalAmount = detectedAmount ?: (if (matchedItemMeta != null) finalQuantity * matchedItemMeta.defaultUnitPrice else 150.0)
-
-        // Category resolution
-        val category = matchedItemMeta?.category ?: when {
-            isIncome -> "Salary & Income"
-            lower.contains("swiggy") || lower.contains("zomato") || lower.contains("restaurant") || lower.contains("hotel") -> "Food & Dining"
-            lower.contains("petrol") || lower.contains("fuel") || lower.contains("uber") || lower.contains("ola") -> "Transportation"
-            lower.contains("movie") || lower.contains("cinema") || lower.contains("netflix") -> "Entertainment"
-            lower.contains("doctor") || lower.contains("hospital") || lower.contains("clinic") -> "Healthcare"
-            lower.contains("school") || lower.contains("college") || lower.contains("fee") -> "Education"
-            lower.contains("rent") -> "Housing & Rent"
-            lower.contains("electricity") || lower.contains("bill") || lower.contains("recharge") -> "Bills & Utilities"
-            else -> "Shopping"
+        val finalAmount = detectedAmount ?: (matchedMeta?.defaultAmount ?: 100.0)
+        val finalTitle = matchedMeta?.standardName ?: run {
+            val clean = lower.replace(Regex("""\b(spent|paid|for|in|via|on|got|received|rs|rupees|upi|cash|card|bank|transfer|selavu|varavu|panam|kaasu)\b"""), "").trim()
+            if (clean.isNotBlank()) clean.replaceFirstChar { it.uppercase() } else (if (isIncome) "Income" else "Expense")
         }
-
-        val title = when {
-            finalItem != null && finalQuantity > 1.0 -> {
-                val qStr = if (finalQuantity % 1.0 == 0.0) "${finalQuantity.toInt()}" else "$finalQuantity"
-                "$finalItem ($qStr $finalUnit)"
-            }
-            finalItem != null -> finalItem
-            prompt.isNotBlank() -> prompt.split(" ").take(3).joinToString(" ").replaceFirstChar { it.uppercase() }
-            else -> "Voice Entry"
+        val finalCategory = if (isIncome) {
+            matchedMeta?.category ?: "Salary & Income"
+        } else {
+            matchedMeta?.category ?: "Food & Dining"
         }
 
         return ParsedVoiceExpense(
-            title = title,
+            title = finalTitle,
             amount = finalAmount,
             type = type,
-            category = category,
+            category = finalCategory,
             paymentMethod = paymentMethod,
-            note = prompt.ifBlank { "Voice expense" },
-            item = finalItem,
-            quantity = finalQuantity,
-            unit = finalUnit,
-            unitPrice = matchedItemMeta?.defaultUnitPrice
+            note = prompt,
+            scope = scope
         )
     }
 }

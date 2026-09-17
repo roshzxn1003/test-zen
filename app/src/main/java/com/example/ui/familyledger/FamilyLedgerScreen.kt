@@ -1,6 +1,7 @@
 package com.example.ui.familyledger
 
 import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -47,6 +48,8 @@ fun FamilyLedgerScreen(
     var transactionToDelete by remember { mutableStateOf<LedgerTransaction?>(null) }
     var showCreateVaultDialog by remember { mutableStateOf(false) }
     var showVaultSwitchMenu by remember { mutableStateOf(false) }
+    var showAlternativeSyncDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val infiniteTransition = rememberInfiniteTransition(label = "sync_spin")
     val spinAngle by infiniteTransition.animateFloat(
@@ -208,6 +211,14 @@ fun FamilyLedgerScreen(
                                         onClick = {
                                             showVaultSwitchMenu = false
                                             showCreateVaultDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Alternative Sync (QR & File)", color = GoldAccent, fontWeight = FontWeight.SemiBold) },
+                                        leadingIcon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = GoldAccent) },
+                                        onClick = {
+                                            showVaultSwitchMenu = false
+                                            showAlternativeSyncDialog = true
                                         }
                                     )
                                 }
@@ -532,5 +543,66 @@ fun FamilyLedgerScreen(
                 }
             }
         }
+    }
+
+    if (showAlternativeSyncDialog) {
+        val activeVault = state.activeVault
+        com.example.ui.components.FamilyMembersDialog(
+            familyMembers = state.members.map { m ->
+                com.example.data.models.FamilyMemberEntity(
+                    id = m.memberId,
+                    familyId = m.familyId,
+                    userId = m.userId,
+                    name = m.name,
+                    role = m.role,
+                    joinedAt = m.joinedAt
+                )
+            },
+            familyName = activeVault?.familyName ?: "Family Vault",
+            familyId = activeVault?.familyId ?: "",
+            inviteCode = activeVault?.inviteCode ?: "",
+            onDismiss = { showAlternativeSyncDialog = false },
+            onAddMember = { name, role ->
+                viewModel.addFamilyMember(name, role)
+            },
+            onJoinFamily = { code ->
+                viewModel.handleScannedVaultQr(code) { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            },
+            onSyncNow = {
+                viewModel.syncNow()
+                Toast.makeText(context, "Syncing Family Vault...", Toast.LENGTH_SHORT).show()
+            },
+            onExportVaultFile = {
+                val fId = state.activeVault?.familyId
+                if (!fId.isNullOrBlank()) {
+                    scope.launch {
+                        val shareIntent = viewModel.repository.exportVaultFileIntent(context, fId)
+                        if (shareIntent != null) {
+                            context.startActivity(shareIntent)
+                        } else {
+                            Toast.makeText(context, "Could not export vault file.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            },
+            onImportVaultFile = { jsonPayload ->
+                scope.launch {
+                    val result = viewModel.repository.importVaultSyncPayload(jsonPayload, viewModel.currentUserId, viewModel.currentUserName)
+                    if (result.isSuccess) {
+                        val summary = result.getOrThrow()
+                        viewModel.setActiveFamily(summary.familyId)
+                        Toast.makeText(
+                            context,
+                            "Imported '${summary.familyName}' (${summary.transactionsImported} transactions, ${summary.membersImported} members).",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(context, result.exceptionOrNull()?.message ?: "Import failed.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
     }
 }

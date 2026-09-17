@@ -125,7 +125,7 @@ fun AnalyticsScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 140.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = 108.dp)
     ) {
         // --- 1. TITLE HEADER & TIME RANGE SELECTOR ---
         item {

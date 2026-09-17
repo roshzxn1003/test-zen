@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.upi.UpiApp
 import com.example.data.upi.UpiIntentResult
+import com.example.data.upi.UpiPaymentBus
 import com.example.data.upi.UpiPaymentInfo
 import com.example.data.upi.UpiPaymentStatus
 import com.example.data.upi.UpiService
@@ -42,7 +43,11 @@ data class UpiPayRequest(
     val amount: Double,
     val purpose: String,
     val vpa: String,
-    val targetPackage: String? = null
+    val targetPackage: String? = null,
+    val payeeName: String? = null,
+    val rawQrUri: String? = null,
+    val merchantCode: String? = null,
+    val originalTxnRef: String? = null
 )
 
 /**
@@ -72,30 +77,31 @@ fun UpiPaymentFlow(
     ) { result ->
         val mapped = UpiService.mapResult(result.resultCode, result.data)
         upiIntentResult = mapped
-        if (mapped.launched) {
-            returnedTxnRef = mapped.returnedTxnRef
-            showPaymentConfirm = true
-        } else {
-            Toast.makeText(context, "Payment flow cancelled or could not be opened.", Toast.LENGTH_SHORT).show()
-            onDismiss()
-        }
+        returnedTxnRef = mapped.returnedTxnRef
+        // In modern Android (Android 11-15), singleTask UPI apps return RESULT_CANCELED (0)
+        // even on completion. We always prompt to confirm if the user completed the transfer.
+        showPaymentConfirm = true
     }
 
     fun launchPayment(targetPackage: String?) {
         val request = payRequest ?: return
-        val info = UpiPaymentInfo(
-            payeeAddress = request.vpa.trim(),
-            payeeName = request.purpose.trim(),
-            amount = String.format(Locale.US, "%.2f", request.amount),
-            currency = "INR",
-            note = request.purpose.trim(),
-            txnRef = "ZNTH-" + UUID.randomUUID().toString().take(12)
-        )
-        val intent = UpiService.buildPayIntent(info, targetPackage)
-        if (intent == null) {
-            Toast.makeText(context, "No UPI app found on this device.", Toast.LENGTH_SHORT).show()
-            return
+        val uri: Uri = if (!request.rawQrUri.isNullOrBlank()) {
+            UpiService.buildQrPaymentUri(request.rawQrUri, request.amount)
+        } else {
+            val cleanName = request.payeeName?.takeIf { it.isNotBlank() } ?: request.purpose.trim()
+            val info = UpiPaymentInfo(
+                payeeAddress = request.vpa.trim(),
+                payeeName = cleanName,
+                amount = String.format(Locale.US, "%.2f", request.amount),
+                currency = "INR",
+                note = request.purpose.trim(),
+                txnRef = request.originalTxnRef.orEmpty(), // CRITICAL: NEVER inject synthetic tr for P2P!
+                merchantCode = request.merchantCode.orEmpty()
+            )
+            UpiService.buildPaymentUri(info)
         }
+
+        val intent = UpiService.buildPayIntentWithUri(uri, targetPackage)
         showAppPicker = false
         try {
             launcher.launch(intent)
@@ -112,6 +118,19 @@ fun UpiPaymentFlow(
                 launchPayment(payRequest.targetPackage)
             } else {
                 showAppPicker = true
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        UpiPaymentBus.detectedPayments.collect { payment ->
+            val req = payRequest
+            if (req != null && payment.isDebit) {
+                if (kotlin.math.abs(payment.amount - req.amount) < 0.05) {
+                    if (!payment.upiTransactionId.isNullOrBlank()) {
+                        returnedTxnRef = payment.upiTransactionId
+                    }
+                }
             }
         }
     }
@@ -248,17 +267,20 @@ fun UpiPaymentFlow(
                             UpiPaymentStatus.SUCCESSFUL -> "Payment Successful"
                             UpiPaymentStatus.PENDING -> "Payment Pending"
                             UpiPaymentStatus.FAILED -> "Payment Failed"
-                            UpiPaymentStatus.CANCELLED -> "Payment Cancelled"
-                            else -> "Payment Initiated"
+                            else -> "Payment Completed?"
                         }
                         
-                        val statusDesc = upiIntentResult?.message ?: "Your payment was initiated. We're waiting for confirmation."
+                        val statusDesc = when (upiIntentResult?.status) {
+                            UpiPaymentStatus.SUCCESSFUL -> "Payment verified successfully!"
+                            UpiPaymentStatus.PENDING -> "Payment submitted and pending bank confirmation."
+                            UpiPaymentStatus.FAILED -> "Payment was reported as failed by the UPI app."
+                            else -> "Did you complete this payment in your UPI app?"
+                        }
                         val statusColor = when (upiIntentResult?.status) {
                             UpiPaymentStatus.SUCCESSFUL -> EmeraldDarkPrimary
                             UpiPaymentStatus.PENDING -> GoalAmber
-                            UpiPaymentStatus.FAILED,
-                            UpiPaymentStatus.CANCELLED -> ExpenseRed
-                            else -> SlateDarkTextPrimary
+                            UpiPaymentStatus.FAILED -> ExpenseRed
+                            else -> EmeraldDarkPrimary
                         }
                         
                         Text(
@@ -299,6 +321,23 @@ fun UpiPaymentFlow(
                                 color = SlateDarkTextSecondary,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
+                        }
+
+                        if (!returnedTxnRef.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = EmeraldDarkPrimary.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, EmeraldDarkPrimary.copy(alpha = 0.3f)),
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Text(
+                                    text = "UTR: $returnedTxnRef",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = EmeraldDarkPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                         
                         val isFailed = upiIntentResult?.status == UpiPaymentStatus.FAILED

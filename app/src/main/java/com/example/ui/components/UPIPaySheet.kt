@@ -11,7 +11,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Payment
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +40,7 @@ fun UPIPaySheet(
     familyName: String,
     familyMembers: List<FamilyMemberEntity>,
     onDismiss: () -> Unit,
+    onOpenScanQr: (() -> Unit)? = null,
     onSaveTransaction: (
         title: String,
         amount: Double,
@@ -64,14 +66,18 @@ fun UPIPaySheet(
     val amount = amountText.toDoubleOrNull() ?: 0.0
     val isValid = amount > 0 && purpose.isNotBlank() && UpiService.isValidVpa(vpaText)
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = SlateDarkSurface,
             border = BorderStroke(1.dp, GlassBorderColor),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 2.dp)
+                .padding(horizontal = 14.dp, vertical = 20.dp)
+                .imePadding()
                 .testTag("upi_pay_sheet")
         ) {
             Column(
@@ -95,7 +101,7 @@ fun UPIPaySheet(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
+                                imageVector = Icons.Default.Payment,
                                 contentDescription = null,
                                 tint = Color(0xFF06B6D4),
                                 modifier = Modifier.size(20.dp)
@@ -146,7 +152,26 @@ fun UPIPaySheet(
                     singleLine = true
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // Quick Amount Chips
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(50, 100, 200, 500, 1000).forEach { chipAmount ->
+                        SuggestionChip(
+                            onClick = { amountText = chipAmount.toString() },
+                            label = { Text("₹$chipAmount", fontSize = 11.sp) },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = SlateDarkSurfaceVariant,
+                                labelColor = SlateDarkTextPrimary
+                            ),
+                            border = BorderStroke(1.dp, GlassBorderColor),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Purpose / Merchant
                 OutlinedTextField(
@@ -174,11 +199,27 @@ fun UPIPaySheet(
                     value = vpaText,
                     onValueChange = { vpaText = it },
                     label = { Text("Payee UPI ID (VPA)") },
-                    placeholder = { Text("e.g. merchant@upi", color = SlateDarkTextMuted) },
-                    isError = vpaText.isNotBlank() && !UpiService.isValidVpa(vpaText),
+                    placeholder = { Text("e.g. merchant@upi or 10-digit number", color = SlateDarkTextMuted) },
+                    isError = vpaText.isNotBlank() && !UpiService.isValidVpa(vpaText) && !(vpaText.length == 10 && vpaText.all { it.isDigit() }),
                     supportingText = {
-                        if (vpaText.isNotBlank() && !UpiService.isValidVpa(vpaText)) {
+                        if (vpaText.isNotBlank() && !UpiService.isValidVpa(vpaText) && !(vpaText.length == 10 && vpaText.all { it.isDigit() })) {
                             Text("Enter a valid UPI ID like name@bank", fontSize = 11.sp, color = ExpenseRed)
+                        } else if (vpaText.length == 10 && vpaText.all { it.isDigit() }) {
+                            Text("Phone number detected. Select a UPI bank handle below:", fontSize = 11.sp, color = Color(0xFF06B6D4))
+                        }
+                    },
+                    trailingIcon = {
+                        if (onOpenScanQr != null) {
+                            IconButton(onClick = {
+                                onDismiss()
+                                onOpenScanQr()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.QrCodeScanner,
+                                    contentDescription = "Scan QR Code",
+                                    tint = Color(0xFF06B6D4)
+                                )
+                            }
                         }
                     },
                     shape = RoundedCornerShape(14.dp),
@@ -193,6 +234,27 @@ fun UPIPaySheet(
                     modifier = Modifier.fillMaxWidth().testTag("upi_vpa_field"),
                     singleLine = true
                 )
+
+                // Phone number quick handle chips
+                if (vpaText.length == 10 && vpaText.all { it.isDigit() }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("@okhdfcbank", "@okaxis", "@paytm", "@ybl").forEach { handle ->
+                            SuggestionChip(
+                                onClick = { vpaText = "$vpaText$handle" },
+                                label = { Text(handle, fontSize = 10.sp) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = Color(0xFF06B6D4).copy(alpha = 0.15f),
+                                    labelColor = Color(0xFF06B6D4)
+                                ),
+                                border = BorderStroke(1.dp, Color(0xFF06B6D4).copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -229,7 +291,7 @@ fun UPIPaySheet(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF06B6D4)),
                     enabled = isValid
                 ) {
-                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Pay via UPI", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }

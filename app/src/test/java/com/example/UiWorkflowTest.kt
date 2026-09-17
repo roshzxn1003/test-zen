@@ -116,6 +116,8 @@ class UiWorkflowTest {
         var addOpened = false
         var voiceOpened = false
         var profileOpened = false
+        var activityOpened = false
+        var syncTriggered = false
 
         composeTestRule.setContent {
             CashFlowTheme {
@@ -131,8 +133,9 @@ class UiWorkflowTest {
                     onOpenReceiptScanner = {},
                     onDeleteTransaction = {},
                     onManageFamilyMembers = {},
-                    onNavigateToActivity = {},
-                    onNavigateToProfile = { profileOpened = true }
+                    onNavigateToActivity = { activityOpened = true },
+                    onNavigateToProfile = { profileOpened = true },
+                    onSyncNow = { syncTriggered = true }
                 )
             }
         }
@@ -140,6 +143,18 @@ class UiWorkflowTest {
         // Test Voice button in header
         composeTestRule.onNodeWithTag("btn_voice_entry_header").performClick()
         assertTrue(voiceOpened)
+
+        // Test User Profile avatar in header
+        composeTestRule.onNodeWithTag("header_user_profile").performClick()
+        assertTrue(profileOpened)
+
+        // Test Quick Search button in header
+        composeTestRule.onNodeWithTag("btn_header_search").performClick()
+        assertTrue(activityOpened)
+
+        // Test Sync pill in header
+        composeTestRule.onNodeWithTag("btn_header_sync").performClick()
+        assertTrue(syncTriggered)
     }
 }
 

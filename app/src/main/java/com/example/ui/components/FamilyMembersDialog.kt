@@ -4,14 +4,22 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import org.json.JSONObject
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -46,13 +54,37 @@ fun FamilyMembersDialog(
     onAddMember: (String, FamilyRole) -> Unit,
     familyName: String = "Family Vault",
     familyId: String = "",
+    inviteCode: String = "",
     onJoinFamily: ((String) -> Unit)? = null,
-    onSyncNow: (() -> Unit)? = null
+    onSyncNow: (() -> Unit)? = null,
+    onExportVaultFile: (() -> Unit)? = null,
+    onImportVaultFile: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showAddDialog by remember { mutableStateOf(false) }
     var showJoinDialog by remember { mutableStateOf(false) }
+    var showShowQrDialog by remember { mutableStateOf(false) }
+    var showScanQrDialog by remember { mutableStateOf(false) }
+    var showImportFileDialog by remember { mutableStateOf(false) }
     var isSyncing by remember { mutableStateOf(false) }
+
+    val effectiveInviteCode = when {
+        inviteCode.isNotBlank() -> inviteCode
+        familyId.startsWith("FAM-") -> familyId
+        familyId.isNotBlank() -> "FAM-" + familyId.take(6).uppercase()
+        else -> ""
+    }
+
+    val qrBitmap = remember(familyId, effectiveInviteCode, familyName) {
+        val payload = JSONObject().apply {
+            put("protocol", 1)
+            put("familyId", familyId)
+            put("familyName", familyName)
+            put("inviteCode", effectiveInviteCode.ifBlank { familyId })
+            put("type", "FAMILY_VAULT_SYNC")
+        }.toString()
+        generateVaultQrBitmap(payload, 512)
+    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "sync_spin")
     val spinAngle by infiniteTransition.animateFloat(
@@ -66,14 +98,15 @@ fun FamilyMembersDialog(
     )
 
     fun shareInviteCode() {
-        if (familyId.isBlank()) return
+        val codeToShare = effectiveInviteCode.ifBlank { familyId }
+        if (codeToShare.isBlank()) return
         try {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, "Join my Family Ledger on Zenith")
                 putExtra(
                     Intent.EXTRA_TEXT,
-                    "Join our shared Family Ledger '$familyName' on Zenith Finance!\n\nFamily Vault ID: $familyId\n\nOpen Zenith > Family Ledger > Join Vault and enter this code to connect instantly."
+                    "Join our shared Family Ledger '$familyName' on Zenith Finance!\n\nInvite Code: $codeToShare\n\nOpen Zenith > Family Ledger > Join Vault and enter $codeToShare to connect instantly."
                 )
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -176,7 +209,7 @@ fun FamilyMembersDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Family Vault ID / Invite Code Box
-                if (familyId.isNotBlank()) {
+                if (effectiveInviteCode.isNotBlank() || familyId.isNotBlank()) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = Color(0xFF8B5CF6).copy(alpha = 0.12f),
@@ -191,7 +224,7 @@ fun FamilyMembersDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f, fill = false)) {
                                     Text(
-                                        text = "FAMILY VAULT ID (INVITE CODE)",
+                                        text = "FAMILY VAULT INVITE CODE",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFFC4B5FD),
@@ -200,7 +233,7 @@ fun FamilyMembersDialog(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = familyId,
+                                        text = effectiveInviteCode.ifBlank { familyId },
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Black,
                                         color = Color(0xFFE9D5FF),
@@ -213,8 +246,9 @@ fun FamilyMembersDialog(
                                     Button(
                                         onClick = {
                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("Zenith Family ID", familyId))
-                                            Toast.makeText(context, "Family ID ($familyId) copied!", Toast.LENGTH_SHORT).show()
+                                            val copyText = effectiveInviteCode.ifBlank { familyId }
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("Zenith Family Invite Code", copyText))
+                                            Toast.makeText(context, "Invite Code ($copyText) copied!", Toast.LENGTH_SHORT).show()
                                         },
                                         shape = RoundedCornerShape(8.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
@@ -241,8 +275,102 @@ fun FamilyMembersDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
+
+                // --- ALTERNATIVE VAULT SYNC OPTIONS ---
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = SlateDarkSurfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, GlassBorderColor),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "ALTERNATIVE VAULT SYNC",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFC4B5FD),
+                                letterSpacing = 0.8.sp
+                            )
+                            Text(
+                                text = "Offline & Direct",
+                                fontSize = 10.sp,
+                                color = SlateDarkTextMuted
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Show QR
+                            OutlinedButton(
+                                onClick = { showShowQrDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                modifier = Modifier.weight(1f).height(34.dp)
+                            ) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFFC4B5FD))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Show QR", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
+
+                            // Scan QR
+                            if (onJoinFamily != null) {
+                                OutlinedButton(
+                                    onClick = { showScanQrDialog = true },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier.weight(1f).height(34.dp)
+                                ) {
+                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(13.dp), tint = EmeraldDarkPrimary)
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Scan QR", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                }
+                            }
+
+                            // Share Vault File
+                            OutlinedButton(
+                                onClick = {
+                                    if (onExportVaultFile != null) {
+                                        onExportVaultFile()
+                                    } else {
+                                        shareInviteCode()
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                modifier = Modifier.weight(1.05f).height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(13.dp), tint = GoldAccent)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Share File", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
+
+                            // Import Vault File
+                            if (onImportVaultFile != null) {
+                                OutlinedButton(
+                                    onClick = { showImportFileDialog = true },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier.weight(1.05f).height(34.dp)
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFF38BDF8))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Import", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Member List
                 if (familyMembers.isEmpty()) {
@@ -416,6 +544,36 @@ fun FamilyMembersDialog(
             onJoin = { code ->
                 onJoinFamily(code)
                 showJoinDialog = false
+            }
+        )
+    }
+
+    if (showShowQrDialog) {
+        VaultQrDisplayDialog(
+            familyName = familyName,
+            inviteCode = effectiveInviteCode.ifBlank { familyId },
+            qrBitmap = qrBitmap,
+            onDismiss = { showShowQrDialog = false },
+            onShare = { shareInviteCode() }
+        )
+    }
+
+    if (showScanQrDialog && onJoinFamily != null) {
+        VaultQrScannerDialog(
+            onDismiss = { showScanQrDialog = false },
+            onCodeScanned = { scannedCode ->
+                onJoinFamily(scannedCode)
+                showScanQrDialog = false
+            }
+        )
+    }
+
+    if (showImportFileDialog && onImportVaultFile != null) {
+        ImportVaultFileDialog(
+            onDismiss = { showImportFileDialog = false },
+            onImport = { payload ->
+                onImportVaultFile(payload)
+                showImportFileDialog = false
             }
         )
     }
@@ -615,4 +773,349 @@ fun AddFamilyMemberDialog(
             }
         }
     }
+}
+
+// =========================================================================
+// ALTERNATIVE SYNC DIALOGS & HELPERS
+// =========================================================================
+
+@Composable
+fun VaultQrDisplayDialog(
+    familyName: String,
+    inviteCode: String,
+    qrBitmap: Bitmap?,
+    onDismiss: () -> Unit,
+    onShare: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SlateDarkSurface,
+            border = BorderStroke(1.dp, GlassBorderColor),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Family Vault QR Sync",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateDarkTextPrimary
+                        )
+                        Text(
+                            text = familyName,
+                            fontSize = 12.sp,
+                            color = SlateDarkTextSecondary
+                        )
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = SlateDarkTextSecondary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    modifier = Modifier
+                        .size(220.dp)
+                        .padding(4.dp)
+                ) {
+                    if (qrBitmap != null) {
+                        Image(
+                            bitmap = qrBitmap.asImageBitmap(),
+                            contentDescription = "Family Vault QR Code",
+                            modifier = Modifier.fillMaxSize().padding(8.dp)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = EmeraldDarkPrimary)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF8B5CF6).copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Invite Code: $inviteCode",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE9D5FF)
+                        )
+                        Text(
+                            text = "Other devices can scan this QR code or enter the invite code above to join.",
+                            fontSize = 11.sp,
+                            color = SlateDarkTextMuted,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onShare,
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Share Code", fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
+                    ) {
+                        Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VaultQrScannerDialog(
+    onDismiss: () -> Unit,
+    onCodeScanned: (String) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SlateDarkSurface,
+            border = BorderStroke(1.dp, GlassBorderColor),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(460.dp)
+                .padding(horizontal = 4.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Scan Family Vault QR",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateDarkTextPrimary
+                        )
+                        Text(
+                            text = "Point camera at another phone's Vault QR",
+                            fontSize = 12.sp,
+                            color = SlateDarkTextSecondary
+                        )
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = SlateDarkTextSecondary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black)
+                ) {
+                    QrCameraView(
+                        modifier = Modifier.fillMaxSize(),
+                        onQrScanned = { rawText ->
+                            val cleanCode = extractInviteCodeFromQr(rawText)
+                            if (cleanCode.isNotBlank()) {
+                                onCodeScanned(cleanCode)
+                            }
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Instant camera synchronization without manual typing",
+                    fontSize = 11.sp,
+                    color = SlateDarkTextMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ImportVaultFileDialog(
+    onDismiss: () -> Unit,
+    onImport: (String) -> Unit
+) {
+    var payloadText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SlateDarkSurface,
+            border = BorderStroke(1.dp, GlassBorderColor),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Import Family Vault File",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SlateDarkTextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Paste the contents of a .zenithvault sync archive to merge transactions offline.",
+                    fontSize = 12.sp,
+                    color = SlateDarkTextSecondary
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = payloadText,
+                    onValueChange = { payloadText = it },
+                    placeholder = { Text("Paste vault sync JSON payload here...", fontSize = 12.sp, color = SlateDarkTextMuted) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp, max = 180.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = EmeraldDarkPrimary,
+                        unfocusedBorderColor = GlassBorderColor
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clipItem = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                        if (!clipItem.isNullOrBlank()) {
+                            payloadText = clipItem
+                            Toast.makeText(context, "Pasted from clipboard", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.Start)
+                ) {
+                    Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Paste from Clipboard", fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            if (payloadText.isNotBlank()) {
+                                onImport(payloadText.trim())
+                                onDismiss()
+                            } else {
+                                Toast.makeText(context, "Please paste the sync payload", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1.2f).height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Import & Merge", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun generateVaultQrBitmap(payload: String, sizePx: Int = 512): Bitmap? {
+    return try {
+        val hints = mapOf(
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+            EncodeHintType.CHARACTER_SET to "UTF-8",
+            EncodeHintType.MARGIN to 1
+        )
+        val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
+        val width = bitMatrix.width
+        val height = bitMatrix.height
+        val pixels = IntArray(width * height)
+        for (y in 0 until height) {
+            val offset = y * width
+            for (x in 0 until width) {
+                pixels[offset + x] = if (bitMatrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            }
+        }
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+        bitmap
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private fun extractInviteCodeFromQr(scanned: String): String {
+    val trimmed = scanned.trim()
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        try {
+            val json = JSONObject(trimmed)
+            val code = json.optString("inviteCode")
+            if (code.isNotBlank()) return code
+            val familyId = json.optString("familyId")
+            if (familyId.isNotBlank()) return familyId
+        } catch (e: Exception) {
+            // fallback to raw
+        }
+    }
+    return trimmed
 }

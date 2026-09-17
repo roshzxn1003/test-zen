@@ -26,7 +26,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.ui.theme.*
 
 val ZENITH_PAYMENT_METHODS = listOf(
-    "UPI" to Icons.Default.QrCodeScanner,
+    "UPI" to Icons.Default.Payment,
     "Cash" to Icons.Default.Payments,
     "Credit Card" to Icons.Default.CreditCard,
     "Debit Card" to Icons.Default.AccountBalanceWallet,

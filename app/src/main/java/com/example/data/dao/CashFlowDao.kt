@@ -7,44 +7,56 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TransactionDao {
 
-    @Query("SELECT * FROM transactions WHERE syncStatus = 'PENDING_CREATE'")
+    @Query("SELECT * FROM transactions WHERE syncStatus = 'PENDING_CREATE' AND isDeleted = 0")
     suspend fun getPendingCreates(): List<TransactionEntity>
 
-    @Query("SELECT * FROM transactions WHERE syncStatus = 'PENDING_UPDATE'")
+    @Query("SELECT * FROM transactions WHERE syncStatus = 'PENDING_UPDATE' AND isDeleted = 0")
     suspend fun getPendingUpdates(): List<TransactionEntity>
 
-    @Query("SELECT * FROM transactions WHERE syncStatus = 'PENDING_DELETE'")
+    @Query("SELECT * FROM transactions WHERE syncStatus = 'PENDING_DELETE' OR isDeleted = 1")
     suspend fun getPendingDeletes(): List<TransactionEntity>
 
     @Query("SELECT * FROM transactions WHERE serverId = :serverId LIMIT 1")
     suspend fun getTransactionByServerId(serverId: String): TransactionEntity?
 
-    @Query("SELECT * FROM transactions ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE isDeleted = 0 ORDER BY dateMillis DESC")
     fun getAllTransactions(): Flow<List<TransactionEntity>>
     
-    @Query("SELECT * FROM transactions WHERE financeScope = :scope ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE financeScope = :scope AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getTransactionsByScope(scope: FinanceScope): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE financeScope = :scope AND type = :type ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE financeScope = :scope AND type = :type AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getTransactionsByScopeAndType(scope: FinanceScope, type: TransactionType): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE familyId = :familyId ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE familyId = :familyId AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getFamilyTransactions(familyId: String): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE familyId = :familyId AND createdByUserId = :userId ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE familyId = :familyId AND createdByUserId = :userId AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getFamilyTransactionsByMember(familyId: String, userId: String): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE familyId = :familyId AND type = 'INCOME' ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE familyId = :familyId AND type = 'INCOME' AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getFamilyIncome(familyId: String): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE familyId = :familyId AND type = 'EXPENSE' ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE familyId = :familyId AND type = 'EXPENSE' AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getFamilyExpenses(familyId: String): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE type = :type ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE type = :type AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getTransactionsByType(type: TransactionType): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE category = :category ORDER BY dateMillis DESC")
+    @Query("SELECT * FROM transactions WHERE category = :category AND isDeleted = 0 ORDER BY dateMillis DESC")
     fun getTransactionsByCategory(category: String): Flow<List<TransactionEntity>>
+
+    @Query("SELECT COALESCE(SUM(amount), 0.0) FROM transactions WHERE financeScope = :scope AND type = 'INCOME' AND isDeleted = 0")
+    fun observeTotalIncome(scope: FinanceScope): Flow<Double>
+
+    @Query("SELECT COALESCE(SUM(amount), 0.0) FROM transactions WHERE financeScope = :scope AND type = 'EXPENSE' AND isDeleted = 0")
+    fun observeTotalExpense(scope: FinanceScope): Flow<Double>
+
+    @Query("UPDATE transactions SET isDeleted = 1, syncStatus = 'PENDING_DELETE', updatedAt = :updatedAt WHERE id = :id")
+    suspend fun markTransactionDeleted(id: Long, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE transactions SET createdByUserId = :newUserId, syncStatus = 'PENDING_CREATE', updatedAt = :updatedAt WHERE (createdByUserId = 'local_user_1' OR createdByUserId IS NULL OR createdByUserId != :newUserId) AND financeScope = 'PERSONAL' AND isDeleted = 0")
+    suspend fun reassignPersonalTransactionsToUser(newUserId: String, updatedAt: Long = System.currentTimeMillis()): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
@@ -103,6 +115,9 @@ interface BudgetDao {
     @Query("SELECT * FROM budgets WHERE serverId = :serverId LIMIT 1")
     suspend fun getBudgetByServerId(serverId: String): BudgetEntity?
 
+    @Query("UPDATE budgets SET isDeleted = 1, syncStatus = 'PENDING_DELETE', updatedAt = :updatedAt WHERE id = :id")
+    suspend fun markBudgetDeleted(id: Long, updatedAt: Long = System.currentTimeMillis())
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateBudget(budget: BudgetEntity): Long
 
@@ -138,6 +153,9 @@ interface SavingsGoalDao {
 
     @Query("SELECT * FROM savings_goals WHERE serverId = :serverId LIMIT 1")
     suspend fun getGoalByServerId(serverId: String): SavingsGoalEntity?
+
+    @Query("UPDATE savings_goals SET isDeleted = 1, syncStatus = 'PENDING_DELETE', updatedAt = :updatedAt WHERE id = :id")
+    suspend fun markGoalDeleted(id: Long, updatedAt: Long = System.currentTimeMillis())
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateGoal(goal: SavingsGoalEntity): Long

@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.data.network.AuthResult
 import com.example.ui.components.GlassCard
 import com.example.ui.components.ZenithLogo
 import com.example.ui.theme.*
@@ -63,12 +64,15 @@ fun AuthScreen(
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var infoMessage by remember { mutableStateOf<String?>(null) }
     var showForgotPasswordDialog by remember { mutableStateOf(false) }
     var forgotPasswordEmail by remember { mutableStateOf("") }
     var forgotPasswordSent by remember { mutableStateOf(false) }
+    var isResettingPassword by remember { mutableStateOf(false) }
 
     fun executeSignIn() {
         errorMessage = null
+        infoMessage = null
         if (email.isBlank()) {
             errorMessage = "Please enter your email address."
             return
@@ -83,19 +87,24 @@ fun AuthScreen(
         }
 
         isLoading = true
-        viewModel.signIn(email.trim(), password) { success ->
+        viewModel.signIn(email.trim(), password) { result: AuthResult ->
             isLoading = false
-            if (success) {
-                Toast.makeText(context, "Welcome back to Zenith!", Toast.LENGTH_SHORT).show()
+            if (result.success) {
+                if (result.isOffline) {
+                    Toast.makeText(context, "Signed in using local vault session (Offline Mode).", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Welcome back to Zenith!", Toast.LENGTH_SHORT).show()
+                }
                 onAuthSuccess()
             } else {
-                errorMessage = "Authentication failed. Please check your credentials or try offline mode."
+                errorMessage = result.message ?: "Authentication failed. Please check your credentials or try offline mode."
             }
         }
     }
 
     fun executeSignUp() {
         errorMessage = null
+        infoMessage = null
         if (fullName.isBlank()) {
             errorMessage = "Please enter your full name."
             return
@@ -118,13 +127,20 @@ fun AuthScreen(
         }
 
         isLoading = true
-        viewModel.signUp(email.trim(), password, fullName.trim()) { success ->
+        viewModel.signUp(email.trim(), password, fullName.trim()) { result: AuthResult ->
             isLoading = false
-            if (success) {
-                Toast.makeText(context, "Account created successfully! Welcome to Zenith.", Toast.LENGTH_LONG).show()
-                onAuthSuccess()
+            if (result.success) {
+                if (result.requiresEmailConfirmation) {
+                    infoMessage = result.message ?: "Registration successful! Please check your email to verify your account, then sign in."
+                    isSignUp = false
+                    password = ""
+                    confirmPassword = ""
+                } else {
+                    Toast.makeText(context, "Account created successfully! Welcome to Zenith.", Toast.LENGTH_LONG).show()
+                    onAuthSuccess()
+                }
             } else {
-                errorMessage = "Unable to create account. Please check your details."
+                errorMessage = result.message ?: "Unable to create account. Please check your details."
             }
         }
     }
@@ -227,6 +243,7 @@ fun AuthScreen(
                             .clickable {
                                 isSignUp = false
                                 errorMessage = null
+                                infoMessage = null
                             }
                             .testTag("tab_sign_in"),
                         contentAlignment = Alignment.Center
@@ -248,6 +265,7 @@ fun AuthScreen(
                             .clickable {
                                 isSignUp = true
                                 errorMessage = null
+                                infoMessage = null
                             }
                             .testTag("tab_create_account"),
                         contentAlignment = Alignment.Center
@@ -263,6 +281,39 @@ fun AuthScreen(
             }
 
             Spacer(modifier = Modifier.height(18.dp))
+
+            // --- INFO / SUCCESS BANNER ---
+            AnimatedVisibility(visible = infoMessage != null) {
+                infoMessage?.let { info ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = EmeraldDarkPrimary.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, EmeraldDarkPrimary.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.CheckCircle,
+                                contentDescription = null,
+                                tint = EmeraldDarkPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = info,
+                                fontSize = 12.sp,
+                                color = SlateDarkTextPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
 
             // --- ERROR BANNER ---
             AnimatedVisibility(visible = errorMessage != null) {
@@ -590,16 +641,38 @@ fun AuthScreen(
                     }
                 } else {
                     Button(
+                        enabled = !isResettingPassword,
                         onClick = {
-                            if (forgotPasswordEmail.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(forgotPasswordEmail.trim()).matches()) {
-                                forgotPasswordSent = true
+                            val cleanEmail = forgotPasswordEmail.trim()
+                            if (cleanEmail.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(cleanEmail).matches()) {
+                                isResettingPassword = true
+                                viewModel.resetPassword(cleanEmail) { result ->
+                                    isResettingPassword = false
+                                    if (result.success) {
+                                        forgotPasswordSent = true
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            result.message ?: "Could not send reset instructions. Please check connection.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
                             } else {
                                 Toast.makeText(context, "Please enter a valid email address.", Toast.LENGTH_SHORT).show()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                     ) {
-                        Text("Send Reset Link")
+                        if (isResettingPassword) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Send Reset Link")
+                        }
                     }
                 }
             },

@@ -64,6 +64,7 @@ fun AddTransactionDialog(
     var showMemberDropdown by remember { mutableStateOf(false) }
 
     val todayFormatted = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date()) }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     val fullCategoryList = listOf(
         "Food & Dining" to Icons.Default.Restaurant,
@@ -286,7 +287,10 @@ fun AddTransactionDialog(
                             .height(44.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isExpense) PastelRose else Color.Transparent)
-                            .clickable { selectedType = TransactionType.EXPENSE }
+                            .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                selectedType = TransactionType.EXPENSE
+                            }
                             .testTag("type_expense_button"),
                         contentAlignment = Alignment.Center
                     ) {
@@ -301,6 +305,7 @@ fun AddTransactionDialog(
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isIncome) PastelGreen else Color.Transparent)
                             .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 selectedType = TransactionType.INCOME
                                 if (selectedCategory == "Food & Dining") selectedCategory = "Salary & Income"
                             }
@@ -458,6 +463,7 @@ fun AddTransactionDialog(
                     onClick = {
                         val parsedAmount = amountText.toDoubleOrNull() ?: 0.0
                         if (isValid) {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             onAdd(
                                 title.trim(),
                                 parsedAmount,

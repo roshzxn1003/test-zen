@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download Zenith CashFlow</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 20px;
+      padding: 32px 24px;
+      max-width: 440px;
+      width: 100%;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .badge {
+      display: inline-block;
+      background: #3b82f6;
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      color: #ffffff;
+    }
+    p.subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 700;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.4);
+      transition: transform 0.1s ease;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .file-info {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #64748b;
+    }
+    .instructions {
+      margin-top: 24px;
+      text-align: left;
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+    .instructions ol {
+      margin-left: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Zenith Build</div>
+    <h1>Zenith CashFlow</h1>
+    <p class="subtitle">Complete Login & Family Vault Sync Update</p>
+    
+    <a href="/Zenith-debug.apk" download="Zenith-debug.apk" class="btn" id="dl-btn">
+      Download APK (96 MB)
+    </a>
+    
+    <div class="file-info">Package: com.aistudio.cashflow.app</div>
+    
+    <div class="instructions">
+      <strong>Installation Steps:</strong>
+      <ol>
+        <li>Tap the blue <strong>Download APK</strong> button above.</li>
+        <li>When downloaded, open the notification or APK file.</li>
+        <li>If prompted, allow <em>"Install unknown apps"</em> for your browser.</li>
+        <li>Tap <strong>Install</strong> to complete setup.</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    // Auto-trigger download after 1 second
+    setTimeout(function() {
+      var link = document.createElement('a');
+      link.href = '/Zenith-debug.apk';
+      link.download = 'Zenith-debug.apk';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }, 1000);
+  </script>
+</body>
+</html>

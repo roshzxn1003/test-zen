@@ -4,70 +4,187 @@ import android.util.Log
 import com.example.data.models.FamilyRole
 import com.example.data.models.TransactionType
 import com.example.data.network.SupabaseClientConfig
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
-import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
-import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.realtime
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
 import java.time.Instant
+import java.util.UUID
 
-/**
- * Dedicated, production-grade cloud data source for Family Ledger.
- * Provides PostgREST cloud operations and realtime streaming directly from Supabase.
- */
-class SupabaseFamilyLedgerDataSource {
+class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
+    private val tag = "SupabaseFamilyDS"
+    private val json = Json { ignoreUnknownKeys = true }
 
-    private val tag = "FamilyLedgerCloud"
-
-    val isAvailable: Boolean
+    override val isAvailable: Boolean
         get() = SupabaseClientConfig.isConfigured
 
-    // --- FAMILY VAULT OPERATIONS ---
+    override fun observeRealtimeTransactions(familyId: String): Flow<RealtimeLedgerEvent> {
+        if (!isAvailable) return emptyFlow()
 
-    suspend fun fetchFamilyVault(familyId: String): FamilyVault? = withContext(Dispatchers.IO) {
+        return callbackFlow {
+            try {
+                val channelName = "family-ledger-$familyId"
+                val channel = SupabaseClientConfig.supabase.realtime.channel(channelName)
+
+                val txFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "transactions"
+                }
+
+                val memberFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "family_members"
+                }
+
+                channel.subscribe()
+                Log.d(tag, "Subscribed to realtime channel: $channelName")
+
+                launch {
+                    txFlow.collect { action ->
+                        when (action) {
+                            is PostgresAction.Insert -> {
+                                val record = action.record
+                                try {
+                                    val dto = json.decodeFromJsonElement<CloudLedgerTransactionDto>(record)
+                                    val domainTx = mapDtoToDomain(dto)
+                                    trySend(RealtimeLedgerEvent(RealtimeEventType.INSERT, transaction = domainTx))
+                                } catch (e: Exception) {
+                                    Log.w(tag, "Failed to decode realtime INSERT: ${e.message}")
+                                }
+                            }
+                            is PostgresAction.Update -> {
+                                val record = action.record
+                                try {
+                                    val dto = json.decodeFromJsonElement<CloudLedgerTransactionDto>(record)
+                                    val domainTx = mapDtoToDomain(dto)
+                                    trySend(RealtimeLedgerEvent(RealtimeEventType.UPDATE, transaction = domainTx))
+                                } catch (e: Exception) {
+                                    Log.w(tag, "Failed to decode realtime UPDATE: ${e.message}")
+                                }
+                            }
+                            is PostgresAction.Delete -> {
+                                val oldRecord = action.oldRecord
+                                val txId = oldRecord["id"]?.toString()?.replace("\"", "") ?: ""
+                                if (txId.isNotBlank()) {
+                                    val stubTx = LedgerTransaction(
+                                        transactionId = txId,
+                                        familyId = familyId,
+                                        title = "",
+                                        amount = 0.0,
+                                        isDeleted = true
+                                    )
+                                    trySend(RealtimeLedgerEvent(RealtimeEventType.DELETE, transaction = stubTx))
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+
+                launch {
+                    memberFlow.collect { action ->
+                        when (action) {
+                            is PostgresAction.Insert, is PostgresAction.Update -> {
+                                val record = action.record
+                                try {
+                                    val dto = json.decodeFromJsonElement<CloudFamilyMemberDto>(record)
+                                    if (dto.familyId == familyId) {
+                                        val domainMember = FamilyVaultMember(
+                                            memberId = dto.id,
+                                            familyId = dto.familyId,
+                                            userId = dto.userId,
+                                            name = dto.name ?: dto.displayName ?: "Member",
+                                            role = try { FamilyRole.valueOf(dto.role) } catch (e: Exception) { FamilyRole.MEMBER },
+                                            joinedAt = parseIsoTimestamp(dto.joinedAt),
+                                            updatedAt = parseIsoTimestamp(dto.updatedAt),
+                                            isDeleted = !dto.isActive,
+                                            syncStatus = "SYNCED"
+                                        )
+                                        val eventType = if (action is PostgresAction.Insert) RealtimeEventType.INSERT else RealtimeEventType.UPDATE
+                                        trySend(RealtimeLedgerEvent(eventType, member = domainMember))
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(tag, "Failed to decode realtime member update: ${e.message}")
+                                }
+                            }
+                            is PostgresAction.Delete -> {
+                                val oldRecord = action.oldRecord
+                                val memId = oldRecord["id"]?.toString()?.replace("\"", "") ?: ""
+                                if (memId.isNotBlank()) {
+                                    val stubMember = FamilyVaultMember(
+                                        memberId = memId,
+                                        familyId = familyId,
+                                        userId = "",
+                                        name = "",
+                                        isDeleted = true
+                                    )
+                                    trySend(RealtimeLedgerEvent(RealtimeEventType.DELETE, member = stubMember))
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Error in realtime subscription: ${e.message}", e)
+            }
+
+            awaitClose {
+                Log.d(tag, "Closing realtime subscription for family: $familyId")
+            }
+        }
+    }
+
+    override suspend fun fetchFamilyVault(familyId: String): FamilyVault? = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext null
         try {
-            val list = SupabaseClientConfig.supabase.postgrest["families"]
+            val dtoList = SupabaseClientConfig.supabase.postgrest["families"]
                 .select(columns = Columns.ALL) {
                     filter { eq("id", familyId) }
                 }
                 .decodeList<CloudFamilyVaultDto>()
 
-            val dto = list.firstOrNull() ?: return@withContext null
-            val createdMillis = parseIsoTimestamp(dto.createdAt)
-            val updatedMillis = parseIsoTimestamp(dto.updatedAt)
-
-            FamilyVault(
-                familyId = dto.id,
-                familyName = dto.name,
-                inviteCode = dto.inviteCode ?: "",
-                createdBy = dto.createdBy,
-                createdAt = createdMillis,
-                updatedAt = updatedMillis
-            )
+            dtoList.firstOrNull()?.let { dto ->
+                FamilyVault(
+                    familyId = dto.id,
+                    familyName = dto.name,
+                    inviteCode = dto.inviteCode ?: "",
+                    createdBy = dto.createdBy ?: "",
+                    createdAt = parseIsoTimestamp(dto.createdAt),
+                    updatedAt = parseIsoTimestamp(dto.updatedAt),
+                    isDeleted = false,
+                    syncStatus = "SYNCED"
+                )
+            }
         } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR fetchFamilyVault: ${e.message}", e)
+            Log.e(tag, "fetchFamilyVault error: ${e.message}", e)
             null
         }
     }
 
-    suspend fun fetchFamilyByInviteCode(inviteCode: String): FamilyVault? = withContext(Dispatchers.IO) {
+    override suspend fun fetchFamilyByInviteCode(inviteCode: String): FamilyVault? = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext null
-        val cleanCode = inviteCode.trim().uppercase()
-        if (cleanCode.isBlank()) return@withContext null
+        val clean = inviteCode.trim().uppercase()
+        if (clean.isBlank()) return@withContext null
 
         val candidateCodes = listOf(
-            cleanCode,
-            if (cleanCode.startsWith("FAM-")) cleanCode.removePrefix("FAM-") else "FAM-$cleanCode"
+            clean,
+            if (clean.startsWith("FAM-")) clean.removePrefix("FAM-") else "FAM-$clean",
+            clean.lowercase(),
+            clean.replace("-", "")
         ).distinct()
 
         try {
-            // 1. Search by invite_code column
             for (code in candidateCodes) {
                 val list = SupabaseClientConfig.supabase.postgrest["families"]
                     .select(columns = Columns.ALL) {
@@ -80,65 +197,49 @@ class SupabaseFamilyLedgerDataSource {
                     return@withContext FamilyVault(
                         familyId = dto.id,
                         familyName = dto.name,
-                        inviteCode = dto.inviteCode ?: ("FAM-" + dto.id.take(6).uppercase()),
-                        createdBy = dto.createdBy,
+                        inviteCode = dto.inviteCode ?: clean,
+                        createdBy = dto.createdBy ?: "",
                         createdAt = parseIsoTimestamp(dto.createdAt),
-                        updatedAt = parseIsoTimestamp(dto.updatedAt)
+                        updatedAt = parseIsoTimestamp(dto.updatedAt),
+                        isDeleted = false,
+                        syncStatus = "SYNCED"
                     )
                 }
             }
 
-            // 2. Search by id ONLY if cleanCode is a valid UUID format
-            if (isValidUuid(cleanCode)) {
-                val list = SupabaseClientConfig.supabase.postgrest["families"]
+            val candidateUuids = mutableListOf<String>()
+            if (isValidUuid(clean)) candidateUuids.add(clean)
+            candidateUuids.add(UUID.nameUUIDFromBytes(clean.toByteArray()).toString())
+
+            for (targetId in candidateUuids.distinct()) {
+                val listById = SupabaseClientConfig.supabase.postgrest["families"]
                     .select(columns = Columns.ALL) {
-                        filter { eq("id", cleanCode) }
+                        filter { eq("id", targetId) }
                     }
                     .decodeList<CloudFamilyVaultDto>()
 
-                val dto = list.firstOrNull()
+                val dto = listById.firstOrNull()
                 if (dto != null) {
                     return@withContext FamilyVault(
                         familyId = dto.id,
                         familyName = dto.name,
-                        inviteCode = dto.inviteCode ?: ("FAM-" + dto.id.take(6).uppercase()),
-                        createdBy = dto.createdBy,
+                        inviteCode = dto.inviteCode ?: clean,
+                        createdBy = dto.createdBy ?: "",
                         createdAt = parseIsoTimestamp(dto.createdAt),
-                        updatedAt = parseIsoTimestamp(dto.updatedAt)
+                        updatedAt = parseIsoTimestamp(dto.updatedAt),
+                        isDeleted = false,
+                        syncStatus = "SYNCED"
                     )
                 }
             }
-
             null
         } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR fetchFamilyByInviteCode: ${e.message}", e)
+            Log.e(tag, "fetchFamilyByInviteCode error: ${e.message}", e)
             null
         }
     }
 
-    suspend fun upsertFamilyVault(vault: FamilyVault): Boolean = withContext(Dispatchers.IO) {
-        if (!isAvailable) return@withContext false
-        try {
-            val dto = CloudFamilyVaultDto(
-                id = vault.familyId,
-                name = vault.familyName,
-                inviteCode = vault.inviteCode,
-                createdBy = vault.createdBy,
-                createdAt = Instant.ofEpochMilli(vault.createdAt).toString(),
-                updatedAt = Instant.ofEpochMilli(vault.updatedAt).toString()
-            )
-            SupabaseClientConfig.supabase.postgrest["families"].upsert(dto)
-            Log.d(tag, "SYNC_CREATE/UPDATE FamilyVault: ${vault.familyId}")
-            true
-        } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR upsertFamilyVault: ${e.message}", e)
-            false
-        }
-    }
-
-    // --- MEMBER OPERATIONS ---
-
-    suspend fun fetchFamilyMembers(familyId: String): List<FamilyVaultMember> = withContext(Dispatchers.IO) {
+    override suspend fun fetchFamilyMembers(familyId: String): List<FamilyVaultMember> = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext emptyList()
         try {
             val dtoList = SupabaseClientConfig.supabase.postgrest["family_members"]
@@ -152,125 +253,154 @@ class SupabaseFamilyLedgerDataSource {
                     memberId = dto.id,
                     familyId = dto.familyId,
                     userId = dto.userId,
-                    name = dto.name ?: "Member",
+                    name = dto.name ?: dto.displayName ?: "Member",
                     role = try { FamilyRole.valueOf(dto.role) } catch (e: Exception) { FamilyRole.MEMBER },
                     joinedAt = parseIsoTimestamp(dto.joinedAt),
                     updatedAt = parseIsoTimestamp(dto.updatedAt),
-                    isDeleted = false
+                    isDeleted = false,
+                    syncStatus = "SYNCED"
                 )
             }
         } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR fetchFamilyMembers: ${e.message}", e)
+            Log.e(tag, "fetchFamilyMembers error: ${e.message}", e)
             emptyList()
         }
     }
 
-    suspend fun upsertFamilyMember(member: FamilyVaultMember): Boolean = withContext(Dispatchers.IO) {
-        if (!isAvailable) return@withContext false
-        try {
-            val dto = CloudFamilyMemberDto(
-                id = member.memberId,
-                familyId = member.familyId,
-                userId = member.userId,
-                name = member.name,
-                role = member.role.name,
-                joinedAt = Instant.ofEpochMilli(member.joinedAt).toString(),
-                updatedAt = Instant.ofEpochMilli(member.updatedAt).toString()
-            )
-            SupabaseClientConfig.supabase.postgrest["family_members"].upsert(dto)
-            Log.d(tag, "SYNC_UPDATE Member: ${member.memberId} (${member.name})")
-            true
-        } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR upsertFamilyMember: ${e.message}", e)
-            false
-        }
-    }
-
-    suspend fun deleteFamilyMember(memberId: String): Boolean = withContext(Dispatchers.IO) {
-        if (!isAvailable) return@withContext false
-        try {
-            SupabaseClientConfig.supabase.postgrest["family_members"].delete {
-                filter { eq("id", memberId) }
-            }
-            Log.d(tag, "SYNC_DELETE Member: $memberId")
-            true
-        } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR deleteFamilyMember: ${e.message}", e)
-            false
-        }
-    }
-
-    // --- TRANSACTION OPERATIONS ---
-
-    suspend fun fetchFamilyTransactions(familyId: String): List<LedgerTransaction> = withContext(Dispatchers.IO) {
+    override suspend fun fetchFamilyTransactions(familyId: String): List<LedgerTransaction> = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext emptyList()
         try {
             val dtoList = SupabaseClientConfig.supabase.postgrest["transactions"]
                 .select(columns = Columns.ALL) {
                     filter {
                         eq("family_id", familyId)
+                        eq("finance_scope", "FAMILY")
+                        eq("is_deleted", false)
                     }
                 }
                 .decodeList<CloudLedgerTransactionDto>()
 
-            dtoList.map { dto ->
-                LedgerTransaction(
-                    transactionId = dto.id,
-                    familyId = dto.familyId,
-                    title = dto.title,
-                    description = dto.descriptionNote ?: "",
-                    amount = dto.amount,
-                    category = dto.category ?: "General",
-                    categoryIcon = getIconForCategory(dto.category ?: "General"),
-                    type = try { TransactionType.valueOf(dto.transactionType) } catch (e: Exception) { TransactionType.EXPENSE },
-                    paymentMethod = dto.paymentMethod,
-                    paidByMemberId = dto.paidByMemberId,
-                    paidByName = dto.paidByName ?: "Member",
-                    dateMillis = parseIsoTimestamp(dto.transactionDate),
-                    createdAt = parseIsoTimestamp(dto.createdAt),
-                    updatedAt = parseIsoTimestamp(dto.updatedAt),
-                    createdBy = dto.paidByMemberId,
-                    lastModifiedBy = dto.paidByMemberId,
-                    isDeleted = dto.isDeleted,
-                    syncStatus = "SYNCED"
-                )
-            }
+            dtoList.map { dto -> mapDtoToDomain(dto) }
         } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR fetchFamilyTransactions: ${e.message}", e)
+            Log.e(tag, "fetchFamilyTransactions error: ${e.message}", e)
             emptyList()
         }
     }
 
-    suspend fun upsertTransaction(tx: LedgerTransaction): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun upsertFamilyVault(vault: FamilyVault): Boolean = withContext(Dispatchers.IO) {
+        if (!isAvailable) return@withContext false
+        val canonicalFamilyId = if (isValidUuid(vault.familyId)) {
+            vault.familyId
+        } else {
+            UUID.nameUUIDFromBytes(vault.familyId.toByteArray()).toString()
+        }
+        val cleanInviteCode = vault.inviteCode.ifBlank { "FAM-" + canonicalFamilyId.take(6).uppercase() }
+
+        val candidateCreatedBy = vault.createdBy.takeIf { it.isNotBlank() && isValidUuid(it) }
+        val dto = CloudFamilyVaultDto(
+            id = canonicalFamilyId,
+            name = vault.familyName.ifBlank { "Family Vault" },
+            inviteCode = cleanInviteCode,
+            createdBy = candidateCreatedBy,
+            createdAt = Instant.ofEpochMilli(vault.createdAt).toString(),
+            updatedAt = Instant.ofEpochMilli(vault.updatedAt).toString()
+        )
+
+        try {
+            SupabaseClientConfig.supabase.postgrest["families"].upsert(dto)
+            true
+        } catch (e: Exception) {
+            // If foreign key constraint on profiles fails (or any FK issue), retry with createdBy = null
+            Log.w(tag, "upsertFamilyVault failed with createdBy, retrying with createdBy=null: ${e.message}")
+            try {
+                val nullCreatedByDto = dto.copy(createdBy = null)
+                SupabaseClientConfig.supabase.postgrest["families"].upsert(nullCreatedByDto)
+                true
+            } catch (e2: Exception) {
+                Log.e(tag, "upsertFamilyVault fallback error: ${e2.message}", e2)
+                false
+            }
+        }
+    }
+
+    override suspend fun upsertFamilyMember(member: FamilyVaultMember): Boolean = withContext(Dispatchers.IO) {
+        if (!isAvailable) return@withContext false
+        val canonicalFamilyId = if (isValidUuid(member.familyId)) {
+            member.familyId
+        } else {
+            UUID.nameUUIDFromBytes(member.familyId.toByteArray()).toString()
+        }
+        val validMemberId = if (isValidUuid(member.memberId)) member.memberId else UUID.randomUUID().toString()
+        val validUserId = member.userId.takeIf { isValidUuid(it) } ?: UUID.randomUUID().toString()
+        try {
+            val dto = CloudFamilyMemberDto(
+                id = validMemberId,
+                familyId = canonicalFamilyId,
+                userId = validUserId,
+                name = member.name.ifBlank { "Family Member" },
+                displayName = member.name.ifBlank { "Family Member" },
+                role = member.role.name,
+                isActive = true,
+                joinedAt = Instant.ofEpochMilli(member.joinedAt).toString(),
+                updatedAt = Instant.ofEpochMilli(member.updatedAt).toString()
+            )
+            SupabaseClientConfig.supabase.postgrest["family_members"].upsert(dto)
+            true
+        } catch (e: Exception) {
+            Log.e(tag, "upsertFamilyMember error: ${e.message}", e)
+            false
+        }
+    }
+
+    override suspend fun deleteFamilyMember(memberId: String): Boolean = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext false
         try {
+            SupabaseClientConfig.supabase.postgrest["family_members"].delete {
+                filter { eq("id", memberId) }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(tag, "deleteFamilyMember error: ${e.message}", e)
+            false
+        }
+    }
+
+    override suspend fun upsertTransaction(tx: LedgerTransaction): Boolean = withContext(Dispatchers.IO) {
+        if (!isAvailable) return@withContext false
+        try {
+            val currentUser = SupabaseClientConfig.supabase.auth.currentUserOrNull()
+            val authUserId = currentUser?.id ?: tx.createdBy.takeIf { isValidUuid(it) } ?: UUID.randomUUID().toString()
+
             val dto = CloudLedgerTransactionDto(
                 id = tx.transactionId,
                 familyId = tx.familyId,
                 financeScope = "FAMILY",
                 title = tx.title,
+                description = tx.description,
                 amount = tx.amount,
                 transactionType = tx.type.name,
+                type = tx.type.name,
                 category = tx.category,
+                categoryName = tx.category,
                 paymentMethod = tx.paymentMethod,
-                paidByMemberId = tx.paidByMemberId,
+                userId = authUserId,
+                paidByMemberId = tx.paidByMemberId.takeIf { it.isNotBlank() && isValidUuid(it) },
                 paidByName = tx.paidByName,
-                descriptionNote = tx.description,
+                syncVersion = tx.syncVersion,
                 transactionDate = Instant.ofEpochMilli(tx.dateMillis).toString(),
                 createdAt = Instant.ofEpochMilli(tx.createdAt).toString(),
                 updatedAt = Instant.ofEpochMilli(tx.updatedAt).toString(),
                 isDeleted = tx.isDeleted
             )
             SupabaseClientConfig.supabase.postgrest["transactions"].upsert(dto)
-            Log.d(tag, "SYNC_CREATE/EDIT Transaction: ${tx.transactionId} (${tx.title} - ₹${tx.amount})")
             true
         } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR upsertTransaction: ${e.message}", e)
+            Log.e(tag, "upsertTransaction error: ${e.message}", e)
             false
         }
     }
 
-    suspend fun softDeleteTransaction(transactionId: String, lastModifiedBy: String = ""): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun softDeleteTransaction(transactionId: String): Boolean = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext false
         try {
             SupabaseClientConfig.supabase.postgrest["transactions"].update({
@@ -279,12 +409,49 @@ class SupabaseFamilyLedgerDataSource {
             }) {
                 filter { eq("id", transactionId) }
             }
-            Log.d(tag, "SYNC_DELETE Transaction: $transactionId")
             true
         } catch (e: Exception) {
-            Log.e(tag, "SYNC_ERROR softDeleteTransaction: ${e.message}", e)
+            Log.e(tag, "softDeleteTransaction error: ${e.message}", e)
             false
         }
+    }
+
+    private fun mapDtoToDomain(dto: CloudLedgerTransactionDto): LedgerTransaction {
+        val effectiveType = try {
+            TransactionType.valueOf(dto.transactionType.ifBlank { dto.type ?: "EXPENSE" })
+        } catch (e: Exception) {
+            try {
+                TransactionType.valueOf(dto.type ?: "EXPENSE")
+            } catch (e2: Exception) {
+                TransactionType.EXPENSE
+            }
+        }
+        val effectiveCategory = dto.category ?: dto.categoryName ?: "General"
+        val effectiveTitle = dto.title?.takeIf { it.isNotBlank() }
+            ?: dto.description.takeIf { it.isNotBlank() }
+            ?: "Transaction"
+
+        return LedgerTransaction(
+            transactionId = dto.id,
+            familyId = dto.familyId,
+            title = effectiveTitle,
+            description = dto.description,
+            amount = dto.amount,
+            category = effectiveCategory,
+            categoryIcon = getIconForCategory(effectiveCategory),
+            type = effectiveType,
+            paymentMethod = dto.paymentMethod,
+            paidByMemberId = dto.paidByMemberId ?: "",
+            paidByName = dto.paidByName ?: "Member",
+            dateMillis = parseIsoTimestamp(dto.transactionDate),
+            createdAt = parseIsoTimestamp(dto.createdAt),
+            updatedAt = parseIsoTimestamp(dto.updatedAt),
+            createdBy = dto.userId,
+            lastModifiedBy = dto.userId,
+            isDeleted = dto.isDeleted,
+            syncStatus = "SYNCED",
+            syncVersion = dto.syncVersion
+        )
     }
 
     private fun parseIsoTimestamp(isoString: String?): Long {
@@ -293,6 +460,16 @@ class SupabaseFamilyLedgerDataSource {
             Instant.parse(isoString).toEpochMilli()
         } catch (e: Exception) {
             System.currentTimeMillis()
+        }
+    }
+
+    private fun isValidUuid(str: String?): Boolean {
+        if (str.isNullOrBlank()) return false
+        return try {
+            java.util.UUID.fromString(str)
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 
@@ -309,15 +486,6 @@ class SupabaseFamilyLedgerDataSource {
             "Freelance / Business" -> "Work"
             "Investments" -> "TrendingUp"
             else -> "Category"
-        }
-    }
-
-    private fun isValidUuid(str: String): Boolean {
-        return try {
-            java.util.UUID.fromString(str)
-            true
-        } catch (e: Exception) {
-            false
         }
     }
 }

@@ -6,21 +6,26 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
-
 import io.github.jan.supabase.auth.MemorySessionManager
 import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 
+import android.content.Context
+
 object SupabaseClientConfig {
+    private var appContext: Context? = null
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
     val isConfigured: Boolean
         get() {
-            val url = BuildConfig.SUPABASE_URL
-            val key = BuildConfig.SUPABASE_ANON_KEY
+            val url = try { BuildConfig.SUPABASE_URL } catch (e: Exception) { "" }
+            val key = try { BuildConfig.SUPABASE_ANON_KEY } catch (e: Exception) { "" }
             return url.isNotBlank() &&
                     url.startsWith("https://") &&
-                    !url.contains("YOUR_SUPABASE_URL") &&
                     !url.contains("your-project-id.supabase.co") &&
                     key.isNotBlank() &&
-                    !key.contains("YOUR_SUPABASE_ANON_KEY") &&
                     !key.contains("your_supabase_anon_key_here")
         }
 
@@ -33,7 +38,12 @@ object SupabaseClientConfig {
             supabaseKey = safeKey
         ) {
             install(Auth) {
-                sessionManager = MemorySessionManager()
+                val ctx = appContext
+                sessionManager = if (ctx != null) {
+                    SharedPreferencesSessionManager(ctx)
+                } else {
+                    MemorySessionManager()
+                }
                 codeVerifierCache = MemoryCodeVerifierCache()
             }
             install(Postgrest)

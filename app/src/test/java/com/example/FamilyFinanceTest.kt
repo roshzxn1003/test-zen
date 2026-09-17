@@ -264,7 +264,7 @@ class FamilyFinanceTest {
 
     @Test
     fun testSyncEngineSafeOfflineExecution() = runBlocking {
-        val authService = com.example.data.network.SupabaseAuthService()
+        val authService = com.example.data.network.LocalAuthService()
         val syncEngine = com.example.data.network.SyncEngine(
             transactionDao = db.transactionDao(),
             familyDao = db.familyDao(),
@@ -276,6 +276,96 @@ class FamilyFinanceTest {
         // With unconfigured credentials, syncAll should safely report true (offline mode) with 0 exceptions
         val result = syncEngine.syncAll()
         assertTrue("SyncEngine should execute safely without crashing in offline mode", result)
+    }
+
+    @Test
+    fun testTransactionSoftDeleteFiltering() = runBlocking {
+        val tx = TransactionEntity(
+            id = 100L,
+            title = "Movie Tickets",
+            amount = 450.0,
+            type = TransactionType.EXPENSE,
+            category = "Entertainment",
+            financeScope = FinanceScope.PERSONAL,
+            serverId = "srv_tx_100"
+        )
+        repo.addTransaction(tx)
+
+        var activeTxs = repo.allTransactions.first()
+        assertEquals(1, activeTxs.size)
+
+        // Soft delete the transaction (synced record)
+        repo.deleteTransaction(activeTxs[0])
+
+        // Live flow should now filter it out immediately
+        activeTxs = repo.allTransactions.first()
+        assertEquals(0, activeTxs.size)
+
+        // But pending deletes should still find it for cloud sync
+        val pendingDeletes = db.transactionDao().getPendingDeletes()
+        assertEquals(1, pendingDeletes.size)
+        assertEquals("srv_tx_100", pendingDeletes[0].serverId)
+        assertTrue(pendingDeletes[0].isDeleted)
+    }
+
+    @Test
+    fun testLocalOnlyTransactionHardDelete() = runBlocking {
+        val localTx = TransactionEntity(
+            id = 200L,
+            title = "Coffee",
+            amount = 120.0,
+            type = TransactionType.EXPENSE,
+            category = "Food & Dining",
+            financeScope = FinanceScope.PERSONAL,
+            serverId = null // Purely local record
+        )
+        repo.addTransaction(localTx)
+
+        var activeTxs = repo.allTransactions.first()
+        assertEquals(1, activeTxs.size)
+
+        // Delete purely local transaction
+        repo.deleteTransaction(activeTxs[0])
+
+        // It should be completely purged from SQLite
+        activeTxs = repo.allTransactions.first()
+        assertEquals(0, activeTxs.size)
+        val pendingDeletes = db.transactionDao().getPendingDeletes()
+        assertEquals(0, pendingDeletes.size)
+    }
+
+    @Test
+    fun testDatabaseSumAggregations() = runBlocking {
+        val income1 = TransactionEntity(
+            title = "Salary",
+            amount = 50000.0,
+            type = TransactionType.INCOME,
+            category = "Salary",
+            financeScope = FinanceScope.PERSONAL
+        )
+        val income2 = TransactionEntity(
+            title = "Dividend",
+            amount = 2500.0,
+            type = TransactionType.INCOME,
+            category = "Investments",
+            financeScope = FinanceScope.PERSONAL
+        )
+        val expense1 = TransactionEntity(
+            title = "Rent",
+            amount = 15000.0,
+            type = TransactionType.EXPENSE,
+            category = "Housing",
+            financeScope = FinanceScope.PERSONAL
+        )
+        repo.addTransaction(income1)
+        repo.addTransaction(income2)
+        repo.addTransaction(expense1)
+
+        val totalIncome = db.transactionDao().observeTotalIncome(FinanceScope.PERSONAL).first()
+        val totalExpense = db.transactionDao().observeTotalExpense(FinanceScope.PERSONAL).first()
+
+        assertEquals(52500.0, totalIncome, 0.001)
+        assertEquals(15000.0, totalExpense, 0.001)
     }
 }
 

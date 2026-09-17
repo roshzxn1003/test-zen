@@ -101,10 +101,20 @@ class CashFlowRepository(
     }
 
     suspend fun deleteTransaction(transaction: TransactionEntity) {
-        transactionDao.updateTransaction(transaction.copy(isDeleted = true, syncStatus = "PENDING_DELETE", updatedAt = System.currentTimeMillis()))
+        if (!transaction.serverId.isNullOrBlank()) {
+            transactionDao.markTransactionDeleted(transaction.id)
+        } else {
+            deleteReceiptByTransactionId(transaction.id)
+            transactionDao.deleteTransactionById(transaction.id)
+        }
+    }
+
+    suspend fun reassignPersonalTransactionsToUser(newUserId: String): Int {
+        return transactionDao.reassignPersonalTransactionsToUser(newUserId)
     }
 
     suspend fun deleteTransactionById(id: Long) {
+        deleteReceiptByTransactionId(id)
         transactionDao.deleteTransactionById(id)
     }
 
@@ -117,7 +127,11 @@ class CashFlowRepository(
     }
 
     suspend fun deleteBudget(budget: BudgetEntity) {
-        budgetDao.deleteBudget(budget)
+        if (!budget.serverId.isNullOrBlank()) {
+            budgetDao.markBudgetDeleted(budget.id)
+        } else {
+            budgetDao.deleteBudget(budget)
+        }
     }
 
     suspend fun saveSavingsGoal(goal: SavingsGoalEntity): Long {
@@ -125,7 +139,11 @@ class CashFlowRepository(
     }
 
     suspend fun deleteSavingsGoal(goal: SavingsGoalEntity) {
-        savingsGoalDao.deleteGoal(goal)
+        if (!goal.serverId.isNullOrBlank()) {
+            savingsGoalDao.markGoalDeleted(goal.id)
+        } else {
+            savingsGoalDao.deleteGoal(goal)
+        }
     }
 
     suspend fun addScannedItem(item: ScannedItemEntity): Long {

@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.models.FinanceScope
+import com.example.data.upi.UpiNotificationListenerService
 import com.example.ui.components.BackupRestoreModal
 import com.example.ui.components.CleanCard
 import com.example.ui.components.ExportDataModal
@@ -71,11 +72,12 @@ fun ProfileScreen(
     val isHapticsOn by viewModel.isHapticsEnabled.collectAsStateWithLifecycle()
     val isNotificationsOn by viewModel.isNotificationsEnabled.collectAsStateWithLifecycle()
 
+    val syncState by viewModel.syncUiState.collectAsStateWithLifecycle()
+
     var showAuthDialog by remember { mutableStateOf(false) }
     var initialAuthModeIsSignUp by remember { mutableStateOf(false) }
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showFamilyDialog by remember { mutableStateOf(false) }
-    var isSyncing by remember { mutableStateOf(false) }
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
@@ -89,7 +91,7 @@ fun ProfileScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 140.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = 108.dp)
     ) {
         // --- 1. USER PROFILE HEADER CARD ---
         item {
@@ -107,18 +109,23 @@ fun ProfileScreen(
                     showAuthDialog = true
                 },
                 onSyncClick = {
-                    coroutineScope.launch {
-                        isSyncing = true
-                        viewModel.syncNow()
-                        isSyncing = false
-                        Toast.makeText(context, "Cloud sync completed successfully!", Toast.LENGTH_SHORT).show()
+                    if (isGuestMode || !isAuthenticated) {
+                        Toast.makeText(context, "Please sign in or create an account to sync with Zenith Cloud.", Toast.LENGTH_LONG).show()
+                    } else {
+                        viewModel.syncNow { success ->
+                            if (success) {
+                                Toast.makeText(context, "Cloud sync completed successfully!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Cloud sync failed. Please check your network connection.", Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                 },
                 onSignOutClick = {
                     viewModel.signOut()
                     Toast.makeText(context, "Signed out of Zenith account.", Toast.LENGTH_SHORT).show()
                 },
-                isSyncing = isSyncing
+                isSyncing = syncState is com.example.ui.viewmodel.SyncUiState.Syncing
             )
             Spacer(modifier = Modifier.height(18.dp))
         }
@@ -330,6 +337,84 @@ fun ProfileScreen(
                     checked = isNotificationsOn,
                     onCheckedChange = { viewModel.setNotificationsEnabled(it) }
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = GlassBorderColor)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Automatic UPI Payment Tracking (Notification Access)
+                val isUpiNotifGranted = remember {
+                    UpiNotificationListenerService.isPermissionGranted(context)
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isUpiNotifGranted) EmeraldDarkPrimary.copy(alpha = 0.1f) else Color(0xFF06B6D4).copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, if (isUpiNotifGranted) EmeraldDarkPrimary.copy(alpha = 0.35f) else Color(0xFF06B6D4).copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        UpiNotificationListenerService.openPermissionSettings(context)
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (isUpiNotifGranted) EmeraldDarkPrimary.copy(alpha = 0.2f) else Color(0xFF06B6D4).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = if (isUpiNotifGranted) EmeraldDarkPrimary else Color(0xFF06B6D4),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Auto-Track UPI Payments",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SlateDarkTextPrimary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isUpiNotifGranted) IncomeGreen.copy(alpha = 0.2f) else GoalAmber.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = if (isUpiNotifGranted) "ACTIVE" else "SETUP",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isUpiNotifGranted) IncomeGreen else GoalAmber,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isUpiNotifGranted)
+                                    "Active: Detects GPay, PhonePe, Paytm, CRED & Bank payment notifications on-device."
+                                else
+                                    "Zero-effort tracking: Pay normally in any UPI app, and Zenith prompts to log it automatically. 100% private.",
+                                fontSize = 11.sp,
+                                color = SlateDarkTextSecondary,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = SlateDarkTextSecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -504,14 +589,38 @@ fun ProfileScreen(
         FamilyMembersDialog(
             familyMembers = familyMembers,
             familyName = activeFamily?.name ?: "Family Vault",
-            familyId = activeFamily?.inviteCode?.takeIf { it.isNotBlank() } ?: activeFamily?.id ?: activeFamilyId ?: "",
+            familyId = activeFamily?.id ?: activeFamilyId ?: "",
+            inviteCode = activeFamily?.inviteCode ?: "",
             onDismiss = { showFamilyDialog = false },
             onAddMember = { name, role ->
                 viewModel.addFamilyMember(name, role)
             },
             onJoinFamily = { code ->
-                viewModel.joinFamily(code) { success, msg ->
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                viewModel.handleScannedVaultQr(code) { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            },
+            onSyncNow = {
+                viewModel.syncFamilyLedgerNow { success ->
+                    Toast.makeText(
+                        context,
+                        if (success) "Family ledger synchronized!" else "Sync complete (offline mode).",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onExportVaultFile = {
+                viewModel.exportVaultSyncFile(context) { shareIntent ->
+                    if (shareIntent != null) {
+                        context.startActivity(shareIntent)
+                    } else {
+                        Toast.makeText(context, "Could not export vault file.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onImportVaultFile = { jsonPayload ->
+                viewModel.importVaultSyncFile(jsonPayload) { success, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 }
             }
         )
@@ -590,15 +699,15 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
-                    Text("Voice Assistant Guide", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SlateDarkTextPrimary)
-                    Text("Speak naturally in English or Tanglish", fontSize = 12.sp, color = SlateDarkTextSecondary)
+                    Text("Voice Entry Guide", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SlateDarkTextPrimary)
+                    Text("Speak your expense or income in English", fontSize = 12.sp, color = SlateDarkTextSecondary)
                     Spacer(modifier = Modifier.height(14.dp))
 
                     listOf(
                         "• \"Spent 150 on lunch\"" to "Records ₹150 in Food & Dining",
                         "• \"Paid 500 for petrol via UPI\"" to "Records ₹500 in Transportation",
-                        "• \"Received salary 10000\"" to "Records ₹10,000 Income",
-                        "• \"Nethu lunch ku 150 spend pannen\"" to "Tanglish recognized accurately"
+                        "• \"Received salary 50000 in bank\"" to "Records ₹50,000 Income",
+                        "• \"Got 200 cashback on Google Pay\"" to "Records ₹200 Income"
                     ).forEach { (cmd, desc) ->
                         Text(cmd, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = GoldAccent)
                         Text(desc, fontSize = 11.sp, color = SlateDarkTextSecondary, modifier = Modifier.padding(bottom = 8.dp))
@@ -623,22 +732,26 @@ fun ProfileScreen(
             isSignUpInitial = initialAuthModeIsSignUp,
             onDismiss = { showAuthDialog = false },
             onSignIn = { email, pass ->
-                viewModel.signIn(email, pass) { success ->
-                    if (success) {
+                viewModel.signIn(email, pass) { result ->
+                    if (result.success) {
                         showAuthDialog = false
                         Toast.makeText(context, "Welcome back to Zenith!", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "Sign in failed. Please verify credentials.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, result.message ?: "Sign in failed. Please verify credentials.", Toast.LENGTH_SHORT).show()
                     }
                 }
             },
             onSignUp = { email, pass, name ->
-                viewModel.signUp(email, pass, name) { success ->
-                    if (success) {
+                viewModel.signUp(email, pass, name) { result ->
+                    if (result.success) {
                         showAuthDialog = false
-                        Toast.makeText(context, "Zenith account created successfully!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            result.message ?: "Zenith account created successfully!",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     } else {
-                        Toast.makeText(context, "Sign up failed. Please try again.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, result.message ?: "Sign up failed. Please try again.", Toast.LENGTH_SHORT).show()
                     }
                 }
             }

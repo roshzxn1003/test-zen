@@ -1,14 +1,8 @@
 package com.example.ui.components
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.ImageDecoder
-import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
+import android.content.Intent
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,9 +10,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,36 +20,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.models.FamilyMemberEntity
 import com.example.data.models.FinanceScope
-import com.example.data.upi.UpiPaymentInfo
 import com.example.data.upi.UpiService
 import com.example.ui.theme.*
-import com.google.android.gms.common.moduleinstall.ModuleInstall
-import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun UpiQrScanModal(
-    currencySymbol: String,
-    currentFinanceScope: FinanceScope,
-    currentUserName: String,
-    familyName: String,
-    familyMembers: List<FamilyMemberEntity>,
+    currencySymbol: String = "₹",
+    currentFinanceScope: FinanceScope = FinanceScope.PERSONAL,
+    currentUserName: String = "You",
+    familyName: String = "Family Vault",
+    familyMembers: List<FamilyMemberEntity> = emptyList(),
     onDismiss: () -> Unit,
     onSaveTransaction: (
         title: String,
@@ -65,135 +49,37 @@ fun UpiQrScanModal(
         memberId: String?,
         upiId: String?,
         upiTransactionId: String?
-    ) -> Unit
+    ) -> Unit = { _, _, _, _, _, _, _ -> }
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
 
-    var isScanning by remember { mutableStateOf(false) }
-    var scanFailed by remember { mutableStateOf(false) }
-    var failureReason by remember { mutableStateOf<String?>(null) }
-    var scannedInfo by remember { mutableStateOf<UpiPaymentInfo?>(null) }
-
-    // Editable review state after a successful scan
-    var editMerchant by remember { mutableStateOf("") }
-    var editAmount by remember { mutableStateOf("") }
-    var editVpa by remember { mutableStateOf("") }
-
-    var selectedScope by remember { mutableStateOf(currentFinanceScope) }
-    var selectedCategory by remember { mutableStateOf("Food & Dining") }
-    var selectedMemberId by remember { mutableStateOf<String?>(null) }
-    var payRequest by remember { mutableStateOf<UpiPayRequest?>(null) }
-
+    val installedUpiApps = remember { UpiService.installedUpiApps(context) }
     val isGPayInstalled = remember { UpiService.isGooglePayInstalled(context) }
+    val isPhonePeInstalled = remember { UpiService.isPhonePeInstalled(context) }
+    val isPaytmInstalled = remember { UpiService.isPaytmInstalled(context) }
+    val isBhimInstalled = remember { UpiService.isBhimInstalled(context) }
 
-            
-
-    fun processBarcodeResult(raw: String) {
-        val parsed = UpiService.parseQrPayload(raw)
-        if (parsed != null) {
-            scannedInfo = parsed
-            editVpa = parsed.payeeAddress
-            editMerchant = parsed.payeeName.ifBlank { parsed.note.ifBlank { "UPI Payment" } }
-            editAmount = parsed.amount.ifBlank { "" }
-            scanFailed = false
-            failureReason = null
-        } else {
-            // Check if it's a bare UPI ID or raw text with VPA
-            if (raw.contains("@")) {
-                val candidateVpa = raw.split(Regex("[\\s:?&=;,/|]")).firstOrNull { it.contains("@") && UpiService.isValidVpa(it.trim()) }
-                if (candidateVpa != null) {
-                    val cleanVpa = candidateVpa.trim()
-                    scannedInfo = UpiPaymentInfo(payeeAddress = cleanVpa, payeeName = "UPI Merchant")
-                    editVpa = cleanVpa
-                    editMerchant = "UPI Merchant"
-                    editAmount = ""
-                    scanFailed = false
-                    failureReason = null
-                    return
-                }
-            }
-            scanFailed = true
-            failureReason = "Scanned QR does not contain valid UPI payment information."
-            Toast.makeText(context, "Not a recognized UPI QR code. Please scan a standard UPI QR.", Toast.LENGTH_SHORT).show()
+    fun launchScanner(targetPackage: String?) {
+        try {
+            val intent = UpiService.buildUpiScannerIntent(context, targetPackage)
+            context.startActivity(intent)
+            onDismiss()
+        } catch (e: Exception) {
+            Toast.makeText(context, "Could not open UPI app scanner: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // On-device ML Kit Barcode reader fallback for Gallery / image URI
-    fun analyzeQrImage(uri: Uri) {
-        coroutineScope.launch {
-            isScanning = true
-            scanFailed = false
-            try {
-                val bitmap = withContext(Dispatchers.IO) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-                    }
-                }
-                val inputImage = InputImage.fromBitmap(bitmap, 0)
-                val fallbackScanner = BarcodeScanning.getClient(
-                    BarcodeScannerOptions.Builder()
-                        .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                        .build()
-                )
-                fallbackScanner.process(inputImage)
-                    .addOnSuccessListener { barcodes ->
-                        isScanning = false
-                        val firstBarcode = barcodes.firstOrNull()
-                        val raw = firstBarcode?.rawValue ?: firstBarcode?.displayValue ?: ""
-                        if (raw.isNotBlank()) {
-                            processBarcodeResult(raw)
-                        } else {
-                            scanFailed = true
-                            failureReason = "No QR code found in selected image."
-                            Toast.makeText(context, "No UPI QR code found in image.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        isScanning = false
-                        scanFailed = true
-                        failureReason = "Could not analyze QR from image: ${e.localizedMessage}"
-                    }
-            } catch (e: Exception) {
-                isScanning = false
-                scanFailed = true
-                failureReason = "Failed to load image: ${e.localizedMessage}"
-            }
-        }
-    }
-
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            analyzeQrImage(uri)
-        }
-    }
-
-    fun startScan() {
-        isScanning = true
-        scanFailed = false
-        failureReason = null
-    }
-
-    LaunchedEffect(Unit) {
-        startScan()
-    }
-
-    val amount = editAmount.toDoubleOrNull() ?: 0.0
-    val isValid = amount > 0 && editMerchant.isNotBlank() && UpiService.isValidVpa(editVpa)
-
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(26.dp),
             color = SlateDarkSurface,
             border = BorderStroke(1.dp, GlassBorderColor),
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp)
+                .fillMaxWidth(0.92f)
+                .padding(vertical = 20.dp)
                 .testTag("upi_qr_scan_modal")
         ) {
             Column(
@@ -208,429 +94,252 @@ fun UpiQrScanModal(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f, fill = false)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
+                                .background(PastelCyan.copy(alpha = 0.18f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.QrCodeScanner,
                                 contentDescription = null,
-                                tint = Color(0xFF8B5CF6),
-                                modifier = Modifier.size(20.dp)
+                                tint = PastelCyan,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = "Scan UPI QR",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = SlateDarkTextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                color = SlateDarkTextPrimary
                             )
                             Text(
-                                text = "Instant payment via Google Pay & UPI",
-                                fontSize = 11.sp,
-                                color = SlateDarkTextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = "Redirect to your UPI app's scanner",
+                                fontSize = 11.5.sp,
+                                color = SlateDarkTextSecondary
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = SlateDarkTextSecondary)
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = SlateDarkTextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Primary 1-tap Chooser Button
+                Button(
+                    onClick = { launchScanner(null) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .testTag("btn_launch_upi_chooser"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PastelCyan)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Open UPI Scanner (Choose App)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = Color.Black
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "OR SCAN DIRECTLY WITH",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    color = SlateDarkTextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Direct Installed Apps List
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Google Pay
+                    UpiAppRedirectTile(
+                        appName = "Google Pay",
+                        badge = if (isGPayInstalled) "Installed" else "Available",
+                        icon = Icons.Default.Payment,
+                        accentColor = Color(0xFF4285F4),
+                        onClick = { launchScanner(UpiService.GOOGLE_PAY_PACKAGE) }
+                    )
+
+                    // PhonePe
+                    UpiAppRedirectTile(
+                        appName = "PhonePe",
+                        badge = if (isPhonePeInstalled) "Installed" else "Available",
+                        icon = Icons.Default.QrCodeScanner,
+                        accentColor = Color(0xFF5F259F),
+                        onClick = { launchScanner(UpiService.PHONEPE_PACKAGE) }
+                    )
+
+                    // Paytm
+                    UpiAppRedirectTile(
+                        appName = "Paytm",
+                        badge = if (isPaytmInstalled) "Installed" else "Available",
+                        icon = Icons.Default.AccountBalanceWallet,
+                        accentColor = Color(0xFF00BAF2),
+                        onClick = { launchScanner(UpiService.PAYTM_PACKAGE) }
+                    )
+
+                    // BHIM
+                    if (isBhimInstalled) {
+                        UpiAppRedirectTile(
+                            appName = "BHIM UPI",
+                            badge = "Installed",
+                            icon = Icons.Default.AccountBalance,
+                            accentColor = Color(0xFF00897B),
+                            onClick = { launchScanner(UpiService.BHIM_PACKAGE) }
+                        )
+                    }
+
+                    // Any other installed UPI apps from package manager query
+                    installedUpiApps.filter { app ->
+                        app.packageName !in listOf(
+                            UpiService.GOOGLE_PAY_PACKAGE,
+                            UpiService.PHONEPE_PACKAGE,
+                            UpiService.PAYTM_PACKAGE,
+                            UpiService.BHIM_PACKAGE
+                        )
+                    }.forEach { customApp ->
+                        UpiAppRedirectTile(
+                            appName = customApp.label,
+                            badge = "Installed",
+                            icon = Icons.AutoMirrored.Filled.OpenInNew,
+                            accentColor = EmeraldDarkPrimary,
+                            onClick = { launchScanner(customApp.packageName) }
+                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Scan state: loading / failed / scanned
-                when {
-                    isScanning -> {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = GlassCardBg,
-                            modifier = Modifier.fillMaxWidth().height(350.dp).clip(RoundedCornerShape(16.dp))
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                QrCameraView(
-                                    modifier = Modifier.fillMaxSize(),
-                                    onQrScanned = { raw ->
-                                        isScanning = false
-                                        processBarcodeResult(raw)
-                                    }
-                                )
-                                Column(
-                                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(240.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                                            val strokeWidth = 4.dp.toPx()
-                                            val length = 30.dp.toPx()
-                                            val color = Color(0xFF8B5CF6)
-                                            
-                                            // Top-Left
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(length, 0f), strokeWidth)
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(0f, length), strokeWidth)
-                                            // Top-Right
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(size.width, 0f), androidx.compose.ui.geometry.Offset(size.width - length, 0f), strokeWidth)
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(size.width, 0f), androidx.compose.ui.geometry.Offset(size.width, length), strokeWidth)
-                                            // Bottom-Left
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(length, size.height), strokeWidth)
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(0f, size.height - length), strokeWidth)
-                                            // Bottom-Right
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(size.width, size.height), androidx.compose.ui.geometry.Offset(size.width - length, size.height), strokeWidth)
-                                            drawLine(color, androidx.compose.ui.geometry.Offset(size.width, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height - length), strokeWidth)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    scanFailed || scannedInfo == null -> {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = GlassCardBg,
-                            border = BorderStroke(1.5.dp, GlassBorderColor),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(18.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(50.dp).clip(CircleShape).background(Color(0xFF8B5CF6).copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.QrCodeScanner,
-                                        contentDescription = null,
-                                        tint = Color(0xFF8B5CF6),
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = if (scanFailed) "Scanner Ready" else "Ready to scan UPI QR",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = SlateDarkTextPrimary
-                                )
-                                Text(
-                                    text = failureReason ?: "Point camera at any UPI QR code or pick a screenshot from Gallery.",
-                                    fontSize = 12.sp,
-                                    color = SlateDarkTextSecondary,
-                                    modifier = Modifier.padding(top = 4.dp),
-                                    lineHeight = 16.sp
-                                )
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Button(
-                                        onClick = { startScan() },
-                                        modifier = Modifier.weight(1f).height(42.dp).testTag("btn_scan_qr_again"),
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6))
-                                    ) {
-                                        Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Scan QR", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = { galleryLauncher.launch("image/*") },
-                                        modifier = Modifier.weight(1f).height(42.dp).testTag("btn_pick_qr_gallery"),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("From Gallery", fontSize = 12.sp)
-                                    }
-                                }
-
-                                // Direct UPI ID entry fallback
-                                Spacer(modifier = Modifier.height(10.dp))
-                                TextButton(
-                                    onClick = {
-                                        scannedInfo = UpiPaymentInfo(payeeAddress = "", payeeName = "UPI Payment")
-                                        scanFailed = false
-                                    }
-                                ) {
-                                    Text("Enter UPI ID manually →", fontSize = 12.sp, color = EmeraldDarkPrimary)
-                                }
-                            }
-                        }
-                    }
-                    else -> {
-                        // --- REVIEW SCANNED PAYMENT ---
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color(0xFF8B5CF6).copy(alpha = 0.08f),
-                            border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "SCANNED UPI DETAILS",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF8B5CF6),
-                                        letterSpacing = 0.8.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = IncomeGreen.copy(alpha = 0.15f)
-                                    ) {
-                                        Text(
-                                            text = "QR Verified",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = IncomeGreen,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // UPI ID
-                                OutlinedTextField(
-                                    value = editVpa,
-                                    onValueChange = { editVpa = it },
-                                    label = { Text("UPI ID (VPA)") },
-                                    placeholder = { Text("e.g. merchant@okhdfcbank", color = SlateDarkTextMuted) },
-                                    isError = editVpa.isNotBlank() && !UpiService.isValidVpa(editVpa),
-                                    supportingText = {
-                                        if (editVpa.isNotBlank() && !UpiService.isValidVpa(editVpa)) {
-                                            Text("Invalid UPI ID", fontSize = 11.sp, color = ExpenseRed)
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF8B5CF6),
-                                        unfocusedBorderColor = GlassBorderColor,
-                                        focusedContainerColor = SlateDarkSurfaceVariant,
-                                        unfocusedContainerColor = SlateDarkSurfaceVariant,
-                                        focusedTextColor = SlateDarkTextPrimary,
-                                        unfocusedTextColor = SlateDarkTextPrimary
-                                    ),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Merchant
-                                OutlinedTextField(
-                                    value = editMerchant,
-                                    onValueChange = { editMerchant = it },
-                                    label = { Text("Merchant / Purpose") },
-                                    placeholder = { Text("Enter merchant name", color = SlateDarkTextMuted) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF8B5CF6),
-                                        unfocusedBorderColor = GlassBorderColor,
-                                        focusedContainerColor = SlateDarkSurfaceVariant,
-                                        unfocusedContainerColor = SlateDarkSurfaceVariant,
-                                        focusedTextColor = SlateDarkTextPrimary,
-                                        unfocusedTextColor = SlateDarkTextPrimary
-                                    ),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Amount (editable)
-                                OutlinedTextField(
-                                    value = editAmount,
-                                    onValueChange = { input ->
-                                        val clean = input.filter { it.isDigit() || it == '.' }
-                                        if (clean.count { it == '.' } <= 1) editAmount = clean
-                                    },
-                                    label = { Text("Amount ($currencySymbol)") },
-                                    placeholder = { Text("0.00", color = SlateDarkTextMuted) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF8B5CF6),
-                                        unfocusedBorderColor = GlassBorderColor,
-                                        focusedContainerColor = SlateDarkSurfaceVariant,
-                                        unfocusedContainerColor = SlateDarkSurfaceVariant,
-                                        focusedTextColor = SlateDarkTextPrimary,
-                                        unfocusedTextColor = SlateDarkTextPrimary
-                                    ),
-                                    modifier = Modifier.fillMaxWidth().testTag("upi_qr_amount_field"),
-                                    singleLine = true
-                                )
-
-                                if (scannedInfo?.amount.isNullOrBlank()) {
-                                    Text(
-                                        text = "Amount was not in QR. Enter amount to complete payment.",
-                                        fontSize = 11.sp,
-                                        color = GoalAmber,
-                                        modifier = Modifier.padding(top = 4.dp, start = 2.dp),
-                                        maxLines = 2
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    TextButton(
-                                        onClick = { startScan() },
-                                        contentPadding = PaddingValues(horizontal = 0.dp)
-                                    ) {
-                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF8B5CF6))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Scan another QR", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF8B5CF6))
-                                    }
-
-                                    TextButton(
-                                        onClick = { galleryLauncher.launch("image/*") },
-                                        contentPadding = PaddingValues(horizontal = 0.dp)
-                                    ) {
-                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(14.dp), tint = SlateDarkTextSecondary)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Pick from Gallery", fontSize = 12.sp, color = SlateDarkTextSecondary)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                UpiTransactionFields(
-                    selectedScope = selectedScope,
-                    onScopeSelected = { selectedScope = it },
-                    selectedCategory = selectedCategory,
-                    onCategorySelected = { selectedCategory = it },
-                    selectedMemberId = selectedMemberId,
-                    onMemberSelected = { selectedMemberId = it },
-                    purpose = editMerchant,
-                    familyName = familyName,
-                    familyMembers = familyMembers,
-                    currentUserName = currentUserName
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // PRIMARY ACTION: Generic UPI Intent Chooser (PhonePe, Paytm, GPay, BHIM, CRED, etc.)
-                Button(
-                    onClick = {
-                        if (!UpiService.isValidVpa(editVpa)) {
-                            Toast.makeText(context, "Please enter a valid UPI ID (VPA).", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        if (amount <= 0 || editMerchant.isBlank()) {
-                            Toast.makeText(context, "Enter an amount and merchant.", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        payRequest = UpiPayRequest(
-                            amount = amount,
-                            purpose = editMerchant,
-                            vpa = editVpa,
-                            targetPackage = null
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp).testTag("btn_pay_via_upi_chooser"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary),
-                    enabled = scannedInfo != null && isValid
+                Surface(
+                    color = Color.White.copy(alpha = 0.04f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pay via UPI App (Choose App)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // OPTIONAL DIRECT SHORTCUT: Google Pay Direct Launch
-                OutlinedButton(
-                    onClick = {
-                        if (!UpiService.isValidVpa(editVpa)) {
-                            Toast.makeText(context, "Please enter a valid UPI ID (VPA).", Toast.LENGTH_SHORT).show()
-                            return@OutlinedButton
-                        }
-                        if (amount <= 0 || editMerchant.isBlank()) {
-                            Toast.makeText(context, "Enter an amount and merchant.", Toast.LENGTH_SHORT).show()
-                            return@OutlinedButton
-                        }
-                        payRequest = UpiPayRequest(
-                            amount = amount,
-                            purpose = editMerchant,
-                            vpa = editVpa,
-                            targetPackage = UpiService.GOOGLE_PAY_PACKAGE
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = SlateDarkTextMuted,
+                            modifier = Modifier.size(16.dp)
                         )
-                    },
-                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("btn_pay_via_gpay_direct"),
-                    shape = RoundedCornerShape(14.dp),
-                    enabled = scannedInfo != null && isValid
-                ) {
-                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pay Directly via Google Pay", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Opens your UPI scanner directly. Once paid, Zenith automatically logs the transaction.",
+                            fontSize = 11.sp,
+                            color = SlateDarkTextSecondary
+                        )
+                    }
                 }
+            }
+        }
+    }
+}
 
-                Spacer(modifier = Modifier.height(8.dp))
+@Composable
+fun UpiAppRedirectTile(
+    appName: String,
+    badge: String,
+    icon: ImageVector,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = SlateDarkSurfaceVariant.copy(alpha = 0.65f),
+        border = BorderStroke(1.dp, GlassBorderColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(accentColor.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = appName,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SlateDarkTextPrimary
+                    )
+                    Text(
+                        text = "Tap to open scanner",
+                        fontSize = 10.5.sp,
+                        color = SlateDarkTextSecondary
+                    )
+                }
+            }
 
-                Text(
-                    text = "Opens Google Pay or selected UPI app directly. Payment is verified and saved safely.",
-                    fontSize = 10.sp,
-                    color = SlateDarkTextMuted,
-                    lineHeight = 13.sp,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    maxLines = 2
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = accentColor.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = badge,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentColor,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = null,
+                    tint = SlateDarkTextMuted,
+                    modifier = Modifier.size(14.dp)
                 )
             }
         }
     }
-
-    UpiPaymentFlow(
-        payRequest = payRequest,
-        currencySymbol = currencySymbol,
-        onSaveConfirmed = { upiTransactionId ->
-            val req = payRequest
-            if (req != null) {
-                onSaveTransaction(
-                    req.purpose.trim().ifBlank { "UPI Payment" },
-                    req.amount,
-                    selectedCategory,
-                    selectedScope,
-                    if (selectedScope == FinanceScope.FAMILY) selectedMemberId else null,
-                    req.vpa.trim().ifBlank { null },
-                    upiTransactionId
-                )
-                onDismiss()
-            }
-        },
-        onDismiss = onDismiss
-    )
 }

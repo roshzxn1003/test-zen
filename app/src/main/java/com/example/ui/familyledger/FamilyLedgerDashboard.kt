@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -565,7 +566,7 @@ fun ModernLedgerTransactionCard(
         "Healthcare" -> Icons.Default.MedicalServices
         "Salary & Income" -> Icons.Default.Payments
         "Freelance / Business" -> Icons.Default.Work
-        "Investments" -> Icons.Default.TrendingUp
+        "Investments" -> Icons.AutoMirrored.Filled.TrendingUp
         else -> Icons.Default.Category
     }
 

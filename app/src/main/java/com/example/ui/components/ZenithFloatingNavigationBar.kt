@@ -56,6 +56,8 @@ fun ZenithFloatingNavigationBar(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -124,6 +126,7 @@ fun ZenithFloatingNavigationBar(
                                 interactionSource = interactionSource,
                                 indication = ripple(bounded = true, radius = 28.dp)
                             ) {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 onTabSelected(index)
                             }
                             .testTag(tab.testTag),

@@ -77,7 +77,7 @@ fun TransactionsScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (onOpenVoiceAssistant != null) {
                     IconButton(onClick = { onOpenVoiceAssistant.invoke() }, modifier = Modifier.padding(end = 8.dp)) {
-                        Icon(Icons.Default.Mic, contentDescription = "Voice Assistant", tint = EmeraldDarkPrimary)
+                        Icon(Icons.Default.Mic, contentDescription = "Voice Entry", tint = EmeraldDarkPrimary)
                     }
                 }
                 Surface(
@@ -270,7 +270,7 @@ fun TransactionsScreen(
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = 140.dp)
+                contentPadding = PaddingValues(bottom = 108.dp)
             ) {
                 groupedTransactions.forEach { (dateHeader, txList) ->
                     item(key = "header_$dateHeader") {
