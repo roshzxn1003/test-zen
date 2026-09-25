@@ -609,12 +609,30 @@ fun JoinFamilyDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                val context = LocalContext.current
                 OutlinedTextField(
                     value = inviteCode,
-                    onValueChange = { inviteCode = it.uppercase() },
+                    onValueChange = { input ->
+                        val extracted = com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode(input)
+                        inviteCode = if (extracted.isNotBlank() && input.length > 8) extracted else input.uppercase()
+                    },
                     label = { Text("Family ID / Invite Code") },
                     placeholder = { Text("e.g. FAM-8F4A2B") },
                     singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
+                            val extracted = com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode(clipText)
+                            if (extracted.isNotBlank()) {
+                                inviteCode = extracted
+                            } else if (clipText.isNotBlank()) {
+                                inviteCode = clipText.trim().uppercase()
+                            }
+                        }) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = Color(0xFFC4B5FD))
+                        }
+                    },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth().height(56.dp)
                 )

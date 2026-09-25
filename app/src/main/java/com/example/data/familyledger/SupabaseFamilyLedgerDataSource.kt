@@ -174,7 +174,7 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
 
     override suspend fun fetchFamilyByInviteCode(inviteCode: String): FamilyVault? = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext null
-        val clean = inviteCode.trim().uppercase()
+        val clean = FamilyInviteCodeUtils.extractInviteCode(inviteCode).ifBlank { inviteCode.trim().uppercase() }
         if (clean.isBlank()) return@withContext null
 
         val candidateCodes = listOf(
@@ -186,11 +186,19 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
 
         try {
             for (code in candidateCodes) {
-                val list = SupabaseClientConfig.supabase.postgrest["families"]
+                var list = SupabaseClientConfig.supabase.postgrest["families"]
                     .select(columns = Columns.ALL) {
                         filter { eq("invite_code", code) }
                     }
                     .decodeList<CloudFamilyVaultDto>()
+
+                if (list.isEmpty()) {
+                    list = SupabaseClientConfig.supabase.postgrest["families"]
+                        .select(columns = Columns.ALL) {
+                            filter { ilike("invite_code", code) }
+                        }
+                        .decodeList<CloudFamilyVaultDto>()
+                }
 
                 val dto = list.firstOrNull()
                 if (dto != null) {
@@ -375,13 +383,13 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
                 id = tx.transactionId,
                 familyId = tx.familyId,
                 financeScope = "FAMILY",
-                title = tx.title,
+                title = tx.title.ifBlank { "Transaction" },
                 description = tx.description,
                 amount = tx.amount,
                 transactionType = tx.type.name,
-                type = tx.type.name,
-                category = tx.category,
-                categoryName = tx.category,
+                category = tx.category.ifBlank { "Other" },
+                categoryId = tx.category.takeIf { isValidUuid(it) } ?: "Other",
+                categoryName = tx.category.ifBlank { "Other" },
                 paymentMethod = tx.paymentMethod,
                 userId = authUserId,
                 paidByMemberId = tx.paidByMemberId.takeIf { it.isNotBlank() && isValidUuid(it) },
@@ -426,7 +434,7 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
                 TransactionType.EXPENSE
             }
         }
-        val effectiveCategory = dto.category ?: dto.categoryName ?: "General"
+        val effectiveCategory = dto.category ?: dto.categoryName ?: dto.categoryId ?: "General"
         val effectiveTitle = dto.title?.takeIf { it.isNotBlank() }
             ?: dto.description.takeIf { it.isNotBlank() }
             ?: "Transaction"

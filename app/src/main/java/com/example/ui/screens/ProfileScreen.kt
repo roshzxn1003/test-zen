@@ -71,6 +71,7 @@ fun ProfileScreen(
     val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
     val isHapticsOn by viewModel.isHapticsEnabled.collectAsStateWithLifecycle()
     val isNotificationsOn by viewModel.isNotificationsEnabled.collectAsStateWithLifecycle()
+    val isUpiAutoDetectionEnabled by viewModel.isUpiAutoDetectionEnabled.collectAsStateWithLifecycle()
 
     val syncState by viewModel.syncUiState.collectAsStateWithLifecycle()
 
@@ -78,12 +79,27 @@ fun ProfileScreen(
     var initialAuthModeIsSignUp by remember { mutableStateOf(false) }
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showFamilyDialog by remember { mutableStateOf(false) }
+    var showUpiSettingsDialog by remember { mutableStateOf(false) }
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var showExportModal by remember { mutableStateOf(false) }
     var showImportModal by remember { mutableStateOf(false) }
     var showBackupModal by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var isUpiNotifGranted by remember { mutableStateOf(UpiNotificationListenerService.isPermissionGranted(context)) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isUpiNotifGranted = UpiNotificationListenerService.isPermissionGranted(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val coroutineScope = rememberCoroutineScope()
 
@@ -343,17 +359,26 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Automatic UPI Payment Tracking (Notification Access)
-                val isUpiNotifGranted = remember {
-                    UpiNotificationListenerService.isPermissionGranted(context)
-                }
-
+                val isServiceFullyActive = isUpiNotifGranted && isUpiAutoDetectionEnabled
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isUpiNotifGranted) EmeraldDarkPrimary.copy(alpha = 0.1f) else Color(0xFF06B6D4).copy(alpha = 0.1f),
-                    border = BorderStroke(1.dp, if (isUpiNotifGranted) EmeraldDarkPrimary.copy(alpha = 0.35f) else Color(0xFF06B6D4).copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        UpiNotificationListenerService.openPermissionSettings(context)
-                    }
+                    color = when {
+                        !isUpiNotifGranted -> GoalAmber.copy(alpha = 0.1f)
+                        !isUpiAutoDetectionEnabled -> SlateDarkSurfaceVariant.copy(alpha = 0.5f)
+                        else -> EmeraldDarkPrimary.copy(alpha = 0.1f)
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        when {
+                            !isUpiNotifGranted -> GoalAmber.copy(alpha = 0.35f)
+                            !isUpiAutoDetectionEnabled -> GlassBorderColor
+                            else -> EmeraldDarkPrimary.copy(alpha = 0.35f)
+                        }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showUpiSettingsDialog = true }
+                        .testTag("row_upi_notification_settings")
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -363,13 +388,23 @@ fun ProfileScreen(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .background(if (isUpiNotifGranted) EmeraldDarkPrimary.copy(alpha = 0.2f) else Color(0xFF06B6D4).copy(alpha = 0.2f)),
+                                .background(
+                                    when {
+                                        !isUpiNotifGranted -> GoalAmber.copy(alpha = 0.2f)
+                                        !isUpiAutoDetectionEnabled -> SlateDarkSurfaceVariant
+                                        else -> EmeraldDarkPrimary.copy(alpha = 0.2f)
+                                    }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.NotificationsActive,
                                 contentDescription = null,
-                                tint = if (isUpiNotifGranted) EmeraldDarkPrimary else Color(0xFF06B6D4),
+                                tint = when {
+                                    !isUpiNotifGranted -> GoalAmber
+                                    !isUpiAutoDetectionEnabled -> SlateDarkTextSecondary
+                                    else -> EmeraldDarkPrimary
+                                },
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -385,23 +420,36 @@ fun ProfileScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
-                                    color = if (isUpiNotifGranted) IncomeGreen.copy(alpha = 0.2f) else GoalAmber.copy(alpha = 0.2f)
+                                    color = when {
+                                        !isUpiNotifGranted -> GoalAmber.copy(alpha = 0.2f)
+                                        !isUpiAutoDetectionEnabled -> SlateDarkSurfaceVariant
+                                        else -> IncomeGreen.copy(alpha = 0.2f)
+                                    }
                                 ) {
                                     Text(
-                                        text = if (isUpiNotifGranted) "ACTIVE" else "SETUP",
+                                        text = when {
+                                            !isUpiNotifGranted -> "SETUP NEEDED"
+                                            !isUpiAutoDetectionEnabled -> "PAUSED"
+                                            else -> "ACTIVE"
+                                        },
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isUpiNotifGranted) IncomeGreen else GoalAmber,
+                                        color = when {
+                                            !isUpiNotifGranted -> GoalAmber
+                                            !isUpiAutoDetectionEnabled -> SlateDarkTextSecondary
+                                            else -> IncomeGreen
+                                        },
                                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                     )
                                 }
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isUpiNotifGranted)
-                                    "Active: Detects GPay, PhonePe, Paytm, CRED & Bank payment notifications on-device."
-                                else
-                                    "Zero-effort tracking: Pay normally in any UPI app, and Zenith prompts to log it automatically. 100% private.",
+                                text = when {
+                                    !isUpiNotifGranted -> "Tap to grant Android Notification Access so Zenith can auto-detect receipts."
+                                    !isUpiAutoDetectionEnabled -> "Detection is temporarily paused in settings. Tap to configure."
+                                    else -> "Active: Intercepts GPay, PhonePe, Paytm, CRED & Bank payment notifications on-device."
+                                },
                                 fontSize = 11.sp,
                                 color = SlateDarkTextSecondary,
                                 lineHeight = 14.sp
@@ -626,22 +674,42 @@ fun ProfileScreen(
         )
     }
 
+    // UPI Notification Settings Dialog
+    if (showUpiSettingsDialog) {
+        UpiNotificationSettingsDialog(
+            isPermissionGranted = isUpiNotifGranted,
+            isAutoDetectEnabled = isUpiAutoDetectionEnabled,
+            onToggleAutoDetect = { enabled ->
+                viewModel.setUpiAutoDetectionEnabled(enabled)
+                Toast.makeText(context, if (enabled) "UPI auto-detection enabled." else "UPI auto-detection paused.", Toast.LENGTH_SHORT).show()
+            },
+            onOpenSystemSettings = {
+                UpiNotificationListenerService.openPermissionSettings(context)
+            },
+            onSimulateTestPayment = {
+                viewModel.simulateTestUpiPayment()
+                Toast.makeText(context, "Simulated payment notification posted! Check modal prompt.", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showUpiSettingsDialog = false }
+        )
+    }
+
     // Clear Local Data Confirmation Dialog
     if (showClearDataDialog) {
         AlertDialog(
             onDismissRequest = { showClearDataDialog = false },
-            title = { Text("Clear All Transactions?") },
-            text = { Text("This will permanently remove all stored local transaction records from your device. This cannot be undone.") },
+            title = { Text("Reset Local Database & Vaults?") },
+            text = { Text("This will permanently wipe all local transactions, budgets, goals, and cached family vaults, and re-initialize clean default categories. Ideal when reconnecting to a reset backend.") },
             confirmButton = {
                 Button(
                     onClick = {
                         viewModel.clearAllLocalData()
                         showClearDataDialog = false
-                        Toast.makeText(context, "Local transactions cleared.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Local database and family ledger reset successfully.", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ExpenseRed)
                 ) {
-                    Text("Clear All Data")
+                    Text("Reset Database")
                 }
             },
             dismissButton = {
@@ -1252,3 +1320,232 @@ fun AuthDialog(
         }
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun UpiNotificationSettingsDialog(
+    isPermissionGranted: Boolean,
+    isAutoDetectEnabled: Boolean,
+    onToggleAutoDetect: (Boolean) -> Unit,
+    onOpenSystemSettings: () -> Unit,
+    onSimulateTestPayment: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SlateDarkSurface,
+            border = BorderStroke(1.dp, GlassBorderColor),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isPermissionGranted && isAutoDetectEnabled) IncomeGreen.copy(alpha = 0.2f) else GoalAmber.copy(alpha = 0.2f))
+                                .border(1.dp, if (isPermissionGranted && isAutoDetectEnabled) IncomeGreen.copy(alpha = 0.4f) else GoalAmber.copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = if (isPermissionGranted && isAutoDetectEnabled) IncomeGreen else GoalAmber,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Auto-Track UPI Payments",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SlateDarkTextPrimary
+                            )
+                            Text(
+                                text = "Instant zero-click expense logging",
+                                fontSize = 11.sp,
+                                color = SlateDarkTextSecondary
+                            )
+                        }
+                    }
+
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = SlateDarkTextSecondary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Status Banner
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = when {
+                        !isPermissionGranted -> GoalAmber.copy(alpha = 0.12f)
+                        !isAutoDetectEnabled -> SlateDarkSurfaceVariant.copy(alpha = 0.5f)
+                        else -> IncomeGreen.copy(alpha = 0.12f)
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        when {
+                            !isPermissionGranted -> GoalAmber.copy(alpha = 0.35f)
+                            !isAutoDetectEnabled -> GlassBorderColor
+                            else -> IncomeGreen.copy(alpha = 0.35f)
+                        }
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isPermissionGranted && isAutoDetectEnabled) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (isPermissionGranted && isAutoDetectEnabled) IncomeGreen else GoalAmber,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = when {
+                                    !isPermissionGranted -> "Android Permission Required"
+                                    !isAutoDetectEnabled -> "Detection Paused in App"
+                                    else -> "Service Active & Listening"
+                                },
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    !isPermissionGranted -> GoalAmber
+                                    !isAutoDetectEnabled -> SlateDarkTextSecondary
+                                    else -> IncomeGreen
+                                }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = when {
+                                !isPermissionGranted -> "Android requires Notification Access so Zenith can detect payment receipts from your UPI apps. 100% private & on-device."
+                                !isAutoDetectEnabled -> "Notification listener is granted in system, but paused by your in-app preference."
+                                else -> "Zenith is actively monitoring UPI receipts. When you make a payment in GPay, PhonePe, Paytm, or your banking app, Zenith will prompt you with one tap to save it."
+                            },
+                            fontSize = 11.sp,
+                            color = SlateDarkTextSecondary,
+                            lineHeight = 15.sp
+                        )
+
+                        if (!isPermissionGranted) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = onOpenSystemSettings,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = GoalAmber),
+                                modifier = Modifier.fillMaxWidth().height(38.dp)
+                            ) {
+                                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Grant Permission in Settings", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // In-App Master Toggle
+                CleanCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    backgroundColor = SlateDarkSurfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    PreferenceSwitchRow(
+                        icon = Icons.Default.PowerSettingsNew,
+                        title = "Enable Auto-Detection",
+                        subtitle = "Toggle payment interceptor inside Zenith",
+                        checked = isAutoDetectEnabled,
+                        onCheckedChange = onToggleAutoDetect
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Supported Apps section
+                Text(
+                    text = "Supported Indian Payment Apps",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = SlateDarkTextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                val supportedApps = listOf("Google Pay", "PhonePe", "Paytm", "CRED", "BHIM", "Amazon Pay", "SBI YONO", "HDFC PayZapp", "ICICI iMobile", "Axis Mobile")
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    supportedApps.forEach { appName ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = SlateDarkSurfaceVariant,
+                            border = BorderStroke(1.dp, GlassBorderColor)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(6.dp).clip(CircleShape).background(IncomeGreen)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(appName, fontSize = 11.sp, color = SlateDarkTextSecondary)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Action Buttons: Simulate Test & Done
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onSimulateTestPayment,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Test Detection", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
+
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
+                    ) {
+                        Text("Done", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+

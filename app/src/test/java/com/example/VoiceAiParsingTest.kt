@@ -171,4 +171,81 @@ class VoiceAiParsingTest {
         assertEquals("Food & Dining", result.category)
         assertEquals("UPI", result.paymentMethod)
     }
+
+    @Test
+    fun testVoiceExpense_TanglishMovie_InnaikuMovieSelavu() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Innaiku movie ki 250 selavu")
+        assertEquals(250.0, result.amount, 0.01)
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals("Entertainment", result.category)
+        assertEquals("Movie Tickets", result.title)
+    }
+
+    @Test
+    fun testVoiceExpense_TanglishVeetuVaadagai_FamilyScope() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Veetu vaadagai 15000 bank transfer")
+        assertEquals(15000.0, result.amount, 0.01)
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals("Housing & Rent", result.category)
+        assertEquals(com.example.data.models.FinanceScope.FAMILY, result.scope)
+        assertEquals("Bank Transfer", result.paymentMethod)
+    }
+
+    @Test
+    fun testVoiceExpense_TanglishAppavukkuMarundhu() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Appavukku marundhu vanginen 450 PhonePe")
+        assertEquals(450.0, result.amount, 0.01)
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals("Healthcare", result.category)
+        assertEquals(com.example.data.models.FinanceScope.FAMILY, result.scope)
+        assertEquals("UPI", result.paymentMethod)
+    }
+
+    @Test
+    fun testVoiceExpense_TanglishNumberWords_Ainooru() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Petrol ainooru selavu")
+        assertEquals(500.0, result.amount, 0.01)
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals("Transportation", result.category)
+    }
+
+    @Test
+    fun testVoiceExpense_TanglishNumberWords_Rendaayiram() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Provisions rendaayiram Google Pay")
+        assertEquals(2000.0, result.amount, 0.01)
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals("Shopping", result.category)
+    }
+
+    @Test
+    fun testVoiceExpense_TanglishNumberWords_Pathaayiram() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Office sambalam pathaayiram vanthuchu")
+        assertEquals(10000.0, result.amount, 0.01)
+        assertEquals(TransactionType.INCOME, result.type)
+        assertEquals("Salary & Income", result.category)
+    }
+
+    @Test
+    fun testFamilyInviteCodeUtils_WhatsAppShareText() {
+        val sharedText = "Join our shared Family Ledger 'Roshan Family' on Zenith Finance!\n\nInvite Code: FAM-8F4A2B\n\nOpen Zenith > Family Ledger > Join Vault and enter FAM-8F4A2B to connect instantly."
+        val extracted = com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode(sharedText)
+        assertEquals("FAM-8F4A2B", extracted)
+    }
+
+    @Test
+    fun testFamilyInviteCodeUtils_DirectCode() {
+        assertEquals("FAM-X8K9L2", com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode("FAM-X8K9L2"))
+        assertEquals("FAM-X8K9L2", com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode("fam-x8k9l2"))
+    }
+
+    @Test
+    fun testFamilyInviteCodeUtils_ShortCode() {
+        assertEquals("FAM-8F4A2B", com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode("8F4A2B"))
+    }
+
+    @Test
+    fun testFamilyInviteCodeUtils_UrlDeepLink() {
+        val url = "https://zenith.cashflow.app/family/join?code=FAM-7A9B3C"
+        assertEquals("FAM-7A9B3C", com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode(url))
+    }
 }

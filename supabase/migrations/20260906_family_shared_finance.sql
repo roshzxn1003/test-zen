@@ -290,24 +290,45 @@ CREATE TABLE IF NOT EXISTS public.family_invitations (
 CREATE OR REPLACE FUNCTION public.sync_transaction_columns()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.transaction_type IS NOT NULL AND NEW.transaction_type <> '' THEN
+    -- 1. Sync transaction_type and type
+    IF NEW.transaction_type IS NOT NULL AND trim(NEW.transaction_type) <> '' THEN
         NEW.type := NEW.transaction_type;
-    ELSIF NEW.type IS NOT NULL AND NEW.type <> '' THEN
+    ELSIF NEW.type IS NOT NULL AND trim(NEW.type) <> '' THEN
         NEW.transaction_type := NEW.type;
+    ELSE
+        NEW.type := 'EXPENSE';
+        NEW.transaction_type := 'EXPENSE';
     END IF;
 
-    IF NEW.category_id IS NOT NULL AND NEW.category_id <> '' THEN
-        NEW.category := NEW.category_id;
-    ELSIF NEW.category IS NOT NULL AND NEW.category <> '' THEN
+    -- 2. Safely sync category and category_id without invalid UUID casts
+    IF NEW.category IS NOT NULL AND trim(NEW.category) <> '' THEN
         NEW.category_id := NEW.category;
+    ELSIF NEW.category_id IS NOT NULL AND trim(NEW.category_id::text) <> '' THEN
+        NEW.category := NEW.category_id::text;
+    ELSE
+        NEW.category := 'Other';
+        NEW.category_id := 'Other';
     END IF;
 
-    IF NEW.title IS NULL OR NEW.title = '' THEN
-        NEW.title := COALESCE(NULLIF(NEW.description, ''), 'Transaction');
+    -- 3. Ensure title and description are properly initialized
+    IF NEW.title IS NULL OR trim(NEW.title) = '' THEN
+        NEW.title := COALESCE(NULLIF(trim(NEW.description), ''), 'Transaction');
     END IF;
     IF NEW.description IS NULL THEN
         NEW.description := COALESCE(NEW.title, '');
     END IF;
+
+    -- 4. Default sync_version and dates
+    IF NEW.sync_version IS NULL THEN
+        NEW.sync_version := 1;
+    END IF;
+    IF NEW.transaction_date IS NULL THEN
+        NEW.transaction_date := NOW();
+    END IF;
+    IF NEW.created_at IS NULL THEN
+        NEW.created_at := NOW();
+    END IF;
+    NEW.updated_at := NOW();
 
     RETURN NEW;
 END;

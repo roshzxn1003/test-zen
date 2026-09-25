@@ -694,7 +694,7 @@ class FamilyLedgerRepository(
         currentUserId: String,
         currentUserName: String
     ): Result<FamilyVault> = withContext(Dispatchers.IO) {
-        val cleanCode = inviteCode.trim().uppercase()
+        val cleanCode = FamilyInviteCodeUtils.extractInviteCode(inviteCode).ifBlank { inviteCode.trim().uppercase() }
         if (cleanCode.isBlank()) return@withContext Result.failure(
             Exception("Please enter a valid invite code")
         )
@@ -707,7 +707,8 @@ class FamilyLedgerRepository(
             targetVault = ledgerDao.getAllFamilyVaultsOnce().firstOrNull {
                 it.inviteCode.equals(cleanCode, ignoreCase = true) ||
                 it.inviteCode.equals("FAM-$cleanCode", ignoreCase = true) ||
-                it.familyId.equals(cleanCode, ignoreCase = true)
+                it.familyId.equals(cleanCode, ignoreCase = true) ||
+                (cleanCode.startsWith("FAM-") && it.inviteCode.equals(cleanCode.removePrefix("FAM-"), ignoreCase = true))
             }
         }
 
@@ -937,6 +938,16 @@ class FamilyLedgerRepository(
 
     suspend fun importVaultSyncPayload(jsonString: String, currentUserId: String, currentUserName: String): Result<VaultImportSummary> =
         vaultSyncEngine.importVaultPayload(jsonString, currentUserId, currentUserName)
+
+    suspend fun clearAllLocalFamilyData() = withContext(Dispatchers.IO) {
+        stopSync()
+        currentActiveFamilyId = null
+        ledgerDao.clearAllLedgerTransactions()
+        ledgerDao.clearAllFamilyVaultMembers()
+        ledgerDao.clearAllFamilyVaults()
+        legacyFamilyDao.deleteAllFamilies()
+        legacyMemberDao.deleteAllFamilyMembers()
+    }
 
     private fun isValidUuid(str: String): Boolean = try {
         UUID.fromString(str); true

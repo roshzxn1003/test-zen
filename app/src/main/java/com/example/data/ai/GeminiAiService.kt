@@ -74,28 +74,51 @@ object GeminiAiService {
         }
         try {
             val systemInstruction = """
-                You are a domain-specific financial transaction parser for a personal & family finance app.
-                The user will provide an expense or income transaction command in English or Romanized Tanglish (English letters).
-                Accurately extract the values into ONLY a valid JSON object matching this schema:
-                - "title": Concise transaction title in English (e.g. "Lunch", "Swiggy Order", "Zomato Delivery", "Rapido Ride", "Movie Tickets", "Monthly Salary", "Grocery Shopping", "Petrol", "Electricity Bill", "House Rent", "Blinkit Groceries")
-                - "amount": Total numeric monetary value as a number (e.g. 250.0, 1200.0, 50000.0). Accurately convert numeric abbreviations: "50k" -> 50000.0, "2.5k" -> 2500.0, "1 lakh" -> 100000.0, "2 crore" -> 20000000.0.
-                - "type": "EXPENSE" or "INCOME" (e.g. salary, freelance, cashback, bonus, stipend, received money, credited is INCOME; spent, paid, bought, purchase, ordered, recharge, bill is EXPENSE)
-                - "category": Choose best from ("Food & Dining", "Transportation", "Shopping", "Entertainment", "Bills & Utilities", "Housing & Rent", "Healthcare", "Education", "Salary & Income", "Investments", "Other")
-                - "paymentMethod": Choose best from ("UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer")
-                - "scope": "PERSONAL" or "FAMILY" (detect if user mentions family, vault, shared, home, split, joint; default to "PERSONAL")
-                - "note": Original user prompt verbatim
+                You are a domain-expert financial transaction parser for Zenith CashFlow, an intelligent personal & family finance app.
+                The user will provide a transaction command in natural English, spoken voice transcription, or Romanized Tanglish (Tamil phrases written strictly in English/Latin alphabet).
                 
-                Examples:
+                PARSING RULES:
+                1. Language: Always output ALL JSON values (title, note, category, payment method) strictly in clean, professional English. Never use Tamil script characters.
+                2. Transaction Type:
+                   - "INCOME": salary, sambalam, freelance, varavu, stipend, bonus, cashback, dividend, received money, credited, refund, interest, allowance, profit.
+                   - "EXPENSE": spent, paid, bought, purchase, ordered, bill, recharge, fee, rent, selavu, kuduthen, vanginen, kattinen, subscription.
+                3. Scope:
+                   - "FAMILY": mentions of family, vault, shared, home, split, joint, house, parents, roommates.
+                   - "PERSONAL": default unless family/shared context is clear.
+                4. Title: Concise, clear standard English title (e.g., "Lunch", "Movie Tickets", "Monthly Salary", "House Rent", "Medicines for Father", "Swiggy Order", "Rapido Ride", "Electricity Bill", "Groceries", "Tea & Snacks").
+                5. Amount: Numeric value (e.g., 250.0). Accurately convert numeric abbreviations and words:
+                   - "50k" -> 50000.0, "2.5k" -> 2500.0
+                   - "1.5 lakh" / "1.5 lac" -> 150000.0, "1 crore" -> 10000000.0
+                   - Romanized number words: "nooru" -> 100.0, "irunooru" -> 200.0, "munnooru" -> 300.0, "ainooru" -> 500.0, "aayiram" -> 1000.0, "rendaayiram" -> 2000.0, "anjaayiram" -> 5000.0, "pathaayiram" -> 10000.0.
+                6. Category: Choose best from:
+                   - "Food & Dining" (restaurants, delivery, cafes, groceries/dining, tea, snacks, swiggy, zomato)
+                   - "Transportation" (fuel, petrol, diesel, cab, auto, metro, train, flight, rapido, uber, ola, toll, parking)
+                   - "Shopping" (groceries, clothing, electronics, ecommerce, blinkit, zepto, instamart, amazon, flipkart)
+                   - "Entertainment" (movies, cinema, streaming, ott, netflix, spotify, games, outings)
+                   - "Bills & Utilities" (electricity, water, gas, cylinder, wifi, internet, mobile recharge, dth)
+                   - "Housing & Rent" (house rent, apartment maintenance, property tax)
+                   - "Healthcare" (medicines, pharmacy, doctor consultation, hospital, gym, wellness)
+                   - "Education" (school fees, college fees, books, courses, tuition)
+                   - "Salary & Income" (salary, wages, freelance, bonus, consulting, stipend)
+                   - "Investments" (stocks, mutual funds, sip, crypto, gold, dividends, cashback)
+                   - "Other" (miscellaneous, gifts, donations, transfers)
+                7. Payment Method: Choose best from ("UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer"). Default to "UPI".
+                
+                EXAMPLES:
                 1. "Spent 350 for lunch via UPI" -> {"title": "Lunch", "amount": 350.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Spent 350 for lunch via UPI"}
-                2. "Paid 1200 for electricity bill cash" -> {"title": "Electricity Bill", "amount": 1200.0, "type": "EXPENSE", "category": "Bills & Utilities", "paymentMethod": "Cash", "scope": "PERSONAL", "note": "Paid 1200 for electricity bill cash"}
-                3. "Received 50k salary from office in bank" -> {"title": "Monthly Salary", "amount": 50000.0, "type": "INCOME", "category": "Salary & Income", "paymentMethod": "Bank Transfer", "scope": "PERSONAL", "note": "Received 50k salary from office in bank"}
-                4. "Got 200 cashback on Google Pay" -> {"title": "Cashback", "amount": 200.0, "type": "INCOME", "category": "Investments", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Got 200 cashback on Google Pay"}
-                5. "500 petrol via PhonePe" -> {"title": "Petrol / Fuel", "amount": 500.0, "type": "EXPENSE", "category": "Transportation", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "500 petrol via PhonePe"}
+                2. "Innaiku movie ki 250 selavu" -> {"title": "Movie Tickets", "amount": 250.0, "type": "EXPENSE", "category": "Entertainment", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Innaiku movie ki 250 selavu"}
+                3. "Paid 1200 for electricity bill cash" -> {"title": "Electricity Bill", "amount": 1200.0, "type": "EXPENSE", "category": "Bills & Utilities", "paymentMethod": "Cash", "scope": "PERSONAL", "note": "Paid 1200 for electricity bill cash"}
+                4. "Received 50k salary from office in bank" -> {"title": "Monthly Salary", "amount": 50000.0, "type": "INCOME", "category": "Salary & Income", "paymentMethod": "Bank Transfer", "scope": "PERSONAL", "note": "Received 50k salary from office in bank"}
+                5. "Kadaila provision samantham 1200 selavu cash" -> {"title": "Provisions & Groceries", "amount": 1200.0, "type": "EXPENSE", "category": "Shopping", "paymentMethod": "Cash", "scope": "PERSONAL", "note": "Kadaila provision samantham 1200 selavu cash"}
                 6. "Family groceries 2.5k credit card" -> {"title": "Family Groceries", "amount": 2500.0, "type": "EXPENSE", "category": "Shopping", "paymentMethod": "Credit Card", "scope": "FAMILY", "note": "Family groceries 2.5k credit card"}
-                7. "Swiggy dinner 450 UPI" -> {"title": "Swiggy Food Order", "amount": 450.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Swiggy dinner 450 UPI"}
-                8. "Rapido bike ride 65 cash" -> {"title": "Rapido Ride", "amount": 65.0, "type": "EXPENSE", "category": "Transportation", "paymentMethod": "Cash", "scope": "PERSONAL", "note": "Rapido bike ride 65 cash"}
-                9. "Shared house rent 15000 bank transfer" -> {"title": "House Rent", "amount": 15000.0, "type": "EXPENSE", "category": "Housing & Rent", "paymentMethod": "Bank Transfer", "scope": "FAMILY", "note": "Shared house rent 15000 bank transfer"}
-                10. "Saapadu 180 selavu UPI" -> {"title": "Food & Dining", "amount": 180.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Saapadu 180 selavu UPI"}
+                7. "Veetu vaadagai 15000 family vault bank transfer" -> {"title": "House Rent", "amount": 15000.0, "type": "EXPENSE", "category": "Housing & Rent", "paymentMethod": "Bank Transfer", "scope": "FAMILY", "note": "Veetu vaadagai 15000 family vault bank transfer"}
+                8. "Appavukku marundhu vanginen 450 PhonePe" -> {"title": "Medicines for Father", "amount": 450.0, "type": "EXPENSE", "category": "Healthcare", "paymentMethod": "UPI", "scope": "FAMILY", "note": "Appavukku marundhu vanginen 450 PhonePe"}
+                9. "Vandi petrol 500 Google Pay" -> {"title": "Petrol / Fuel", "amount": 500.0, "type": "EXPENSE", "category": "Transportation", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Vandi petrol 500 Google Pay"}
+                10. "Ammavukku send panen 3000 bank transfer" -> {"title": "Money Sent to Mother", "amount": 3000.0, "type": "EXPENSE", "category": "Other", "paymentMethod": "Bank Transfer", "scope": "FAMILY", "note": "Ammavukku send panen 3000 bank transfer"}
+                11. "Tea and snacks ainooru selavu cash" -> {"title": "Tea & Snacks", "amount": 500.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "Cash", "scope": "PERSONAL", "note": "Tea and snacks ainooru selavu cash"}
+                12. "Swiggy dinner 450 UPI" -> {"title": "Swiggy Food Order", "amount": 450.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Swiggy dinner 450 UPI"}
+                13. "Dinner with roommates 800 split" -> {"title": "Dinner with Roommates", "amount": 800.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "FAMILY", "note": "Dinner with roommates 800 split"}
+                14. "Got 200 cashback on Google Pay" -> {"title": "Cashback", "amount": 200.0, "type": "INCOME", "category": "Investments", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Got 200 cashback on Google Pay"}
                 
                 Return plain JSON only without markdown formatting.
             """.trimIndent()
@@ -363,46 +386,58 @@ object GeminiAiService {
     }
 
     private fun callGeminiApi(apiKey: String, systemInstruction: String, promptText: String): String {
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.doOutput = true
-        conn.connectTimeout = 4000
-        conn.readTimeout = 5000
+        val candidateModels = listOf("gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash")
+        var lastError: Exception? = null
 
-        val requestPayload = JSONObject().apply {
-            put("systemInstruction", JSONObject().apply {
-                put("parts", JSONArray().put(JSONObject().apply { put("text", systemInstruction) }))
-            })
-            put("generationConfig", JSONObject().apply {
-                put("temperature", 0.1)
-                put("maxOutputTokens", 512)
-            })
-            put("contents", JSONArray().put(JSONObject().apply {
-                put("parts", JSONArray().apply {
-                    put(JSONObject().apply { put("text", promptText) })
-                })
-            }))
-        }
+        for (model in candidateModels) {
+            try {
+                val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.connectTimeout = 4000
+                conn.readTimeout = 5000
 
-        OutputStreamWriter(conn.outputStream).use { writer ->
-            writer.write(requestPayload.toString())
-            writer.flush()
-        }
+                val requestPayload = JSONObject().apply {
+                    put("systemInstruction", JSONObject().apply {
+                        put("parts", JSONArray().put(JSONObject().apply { put("text", systemInstruction) }))
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.1)
+                        put("maxOutputTokens", 512)
+                    })
+                    put("contents", JSONArray().put(JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", promptText) })
+                        })
+                    }))
+                }
 
-        if (conn.responseCode == 200) {
-            val responseString = conn.inputStream.bufferedReader().readText()
-            val respObj = JSONObject(responseString)
-            val candidates = respObj.optJSONArray("candidates")
-            val firstCandidate = candidates?.optJSONObject(0)
-            val content = firstCandidate?.optJSONObject("content")
-            val parts = content?.optJSONArray("parts")
-            val firstPart = parts?.optJSONObject(0)
-            return firstPart?.optString("text") ?: ""
-        } else {
-            throw RuntimeException("Gemini API error code: ${conn.responseCode}")
+                OutputStreamWriter(conn.outputStream).use { writer ->
+                    writer.write(requestPayload.toString())
+                    writer.flush()
+                }
+
+                if (conn.responseCode == 200) {
+                    val responseString = conn.inputStream.bufferedReader().readText()
+                    val respObj = JSONObject(responseString)
+                    val candidates = respObj.optJSONArray("candidates")
+                    val firstCandidate = candidates?.optJSONObject(0)
+                    val content = firstCandidate?.optJSONObject("content")
+                    val parts = content?.optJSONArray("parts")
+                    val firstPart = parts?.optJSONObject(0)
+                    return firstPart?.optString("text") ?: ""
+                } else if (conn.responseCode == 404) {
+                    continue
+                } else {
+                    lastError = RuntimeException("Gemini API error code: ${conn.responseCode}")
+                }
+            } catch (e: Exception) {
+                lastError = e
+            }
         }
+        throw lastError ?: RuntimeException("Gemini API request failed across all candidate models")
     }
 
     // --- Fast English Rule-Based Fallback Parser ---
@@ -461,6 +496,8 @@ object GeminiAiService {
         "reliance fresh" to ItemMeta("Reliance Fresh", "Shopping", 900.0),
         "kadai" to ItemMeta("Store Purchase", "Shopping", 300.0),
         "maligai" to ItemMeta("Provisions / Maligai", "Shopping", 800.0),
+        "provisions" to ItemMeta("Provisions & Groceries", "Shopping", 1500.0),
+        "provision" to ItemMeta("Provisions & Groceries", "Shopping", 1000.0),
         "vegetables" to ItemMeta("Vegetables", "Shopping", 150.0),
         "fruits" to ItemMeta("Fruits", "Shopping", 200.0),
         "apple" to ItemMeta("Apples", "Shopping", 120.0),
@@ -547,7 +584,30 @@ object GeminiAiService {
         "course" to ItemMeta("Course / Tuition", "Education", 2500.0),
         "tuition" to ItemMeta("Tuition Fee", "Education", 1500.0),
         "school" to ItemMeta("School Fees", "Education", 8000.0),
-        "college" to ItemMeta("College Fees", "Education", 25000.0)
+        "college" to ItemMeta("College Fees", "Education", 25000.0),
+
+        // Everyday & Tanglish Extensions
+        "tea" to ItemMeta("Tea & Snacks", "Food & Dining", 30.0),
+        "chai" to ItemMeta("Tea & Snacks", "Food & Dining", 30.0),
+        "vadai" to ItemMeta("Tea & Snacks", "Food & Dining", 40.0),
+        "samosa" to ItemMeta("Tea & Snacks", "Food & Dining", 40.0),
+        "dosa" to ItemMeta("Breakfast / Dosa", "Food & Dining", 90.0),
+        "idli" to ItemMeta("Breakfast / Idli", "Food & Dining", 60.0),
+        "meals" to ItemMeta("Lunch Meals", "Food & Dining", 140.0),
+        "parotta" to ItemMeta("Dinner / Parotta", "Food & Dining", 120.0),
+        "juice" to ItemMeta("Beverages / Juice", "Food & Dining", 60.0),
+        "broadband" to ItemMeta("Broadband Bill", "Bills & Utilities", 799.0),
+        "water can" to ItemMeta("Drinking Water", "Bills & Utilities", 80.0),
+        "stationery" to ItemMeta("Stationery", "Education", 200.0),
+        "haircut" to ItemMeta("Haircut & Grooming", "Healthcare", 200.0),
+        "salon" to ItemMeta("Salon & Grooming", "Healthcare", 350.0),
+        "service" to ItemMeta("Vehicle Service", "Transportation", 2500.0),
+        "tyre" to ItemMeta("Vehicle Maintenance", "Transportation", 400.0),
+        "puncture" to ItemMeta("Puncture Repair", "Transportation", 100.0),
+        "gift" to ItemMeta("Gift", "Other", 1000.0),
+        "donation" to ItemMeta("Donation", "Other", 500.0),
+        "courier" to ItemMeta("Courier Service", "Bills & Utilities", 150.0),
+        "post" to ItemMeta("Postal Service", "Bills & Utilities", 100.0)
     )
 
     fun fallbackParseVoiceCommand(prompt: String): ParsedVoiceExpense {
@@ -557,7 +617,10 @@ object GeminiAiService {
         val isFamilyScope = lower.contains("family") || lower.contains("shared") ||
             lower.contains("vault") || lower.contains("household") ||
             lower.contains("split") || lower.contains("joint") ||
-            lower.contains("our ") || lower.endsWith("our")
+            lower.contains("our ") || lower.endsWith("our") ||
+            lower.contains("roommate") || lower.contains("veetu") ||
+            lower.contains("amma") || lower.contains("appa") ||
+            lower.contains("veedu") || lower.contains("vaadagai")
         val scope = if (isFamilyScope) FinanceScope.FAMILY else FinanceScope.PERSONAL
 
         // 2. Explicit Income vs Expense Detection
@@ -589,22 +652,55 @@ object GeminiAiService {
             else -> "UPI"
         }
 
-        // 4. Amount Extraction (Handling 'k', 'thousand', 'lakh', 'crore' multipliers)
+        // 4. Amount Extraction (Handling number words, 'k', 'thousand', 'lakh', 'crore' multipliers)
         var detectedAmount: Double? = null
 
-        val multiplierRegex = Regex("""(?:(?:[$₹€£]|rs|rupees|inr|paid|spent|cost|of)\s*)?(\d+(?:\.\d+)?)\s*(k|thousand|lakh|lakhs|lac|lacs|crore|crores|cr)\b""", RegexOption.IGNORE_CASE)
-        val multMatch = multiplierRegex.find(lower)
-        if (multMatch != null) {
-            val base = multMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-            val unit = multMatch.groupValues[2].lowercase()
-            val mult = when {
-                unit == "k" || unit == "thousand" -> 1000.0
-                unit.startsWith("la") -> 100000.0
-                unit.startsWith("cr") -> 10000000.0
-                else -> 1.0
+        val numberWords = listOf(
+            "iruvathaayiram" to 20000.0,
+            "pathaayiram" to 10000.0,
+            "anjaayiram" to 5000.0,
+            "naalaayiram" to 4000.0,
+            "moonaayiram" to 3000.0,
+            "rendaayiram" to 2000.0,
+            "aayiram" to 1000.0,
+            "oru aayiram" to 1000.0,
+            "thollaayiram" to 900.0,
+            "ennooru" to 800.0,
+            "elanooru" to 700.0,
+            "arunooru" to 600.0,
+            "ainooru" to 500.0,
+            "naanooru" to 400.0,
+            "munnooru" to 300.0,
+            "irunooru" to 200.0,
+            "nooru" to 100.0,
+            "oru nooru" to 100.0,
+            "two thousand" to 2000.0,
+            "one thousand" to 1000.0,
+            "five hundred" to 500.0
+        )
+
+        for ((word, wordVal) in numberWords) {
+            if (lower.contains(word)) {
+                detectedAmount = wordVal
+                break
             }
-            if (base > 0) {
-                detectedAmount = base * mult
+        }
+
+        if (detectedAmount == null || detectedAmount <= 0.0) {
+            val multiplierRegex = Regex("""(?:(?:[$₹€£]|rs|rupees|inr|paid|spent|cost|of)\s*)?(\d+(?:\.\d+)?)\s*(k|thousand|lakh|lakhs|lac|lacs|crore|crores|cr)\b""", RegexOption.IGNORE_CASE)
+            val multMatch = multiplierRegex.find(lower)
+            if (multMatch != null) {
+                val base = multMatch.groupValues[1].toDoubleOrNull() ?: 0.0
+                val unit = multMatch.groupValues[2].lowercase()
+                val mult = when {
+                    unit == "k" || unit == "thousand" -> 1000.0
+                    unit.startsWith("la") -> 100000.0
+                    unit.startsWith("cr") -> 10000000.0
+                    else -> 1.0
+                }
+                if (base > 0) {
+                    detectedAmount = base * mult
+                }
             }
         }
 
@@ -627,7 +723,12 @@ object GeminiAiService {
         var matchedMeta: ItemMeta? = null
         var bestKeyword = ""
         for ((key, meta) in ENGLISH_ITEM_DICTIONARY) {
-            if (lower.contains(key)) {
+            val matches = if (key.length <= 3) {
+                Regex("""\b${Regex.escape(key)}\b""").containsMatchIn(lower)
+            } else {
+                lower.contains(key)
+            }
+            if (matches) {
                 if (key.length > bestKeyword.length) {
                     bestKeyword = key
                     matchedMeta = meta
@@ -637,7 +738,7 @@ object GeminiAiService {
 
         val finalAmount = detectedAmount ?: (matchedMeta?.defaultAmount ?: 100.0)
         val finalTitle = matchedMeta?.standardName ?: run {
-            val clean = lower.replace(Regex("""\b(spent|paid|for|in|via|on|got|received|rs|rupees|upi|cash|card|bank|transfer|selavu|varavu|panam|kaasu)\b"""), "").trim()
+            val clean = lower.replace(Regex("""\b(spent|paid|for|in|via|on|got|received|rs|rupees|upi|cash|card|bank|transfer|selavu|varavu|panam|kaasu|poten|kuduthen|vanginen|kattinen|innaiku|veetu|office|ku|la)\b"""), "").trim()
             if (clean.isNotBlank()) clean.replaceFirstChar { it.uppercase() } else (if (isIncome) "Income" else "Expense")
         }
         val finalCategory = if (isIncome) {

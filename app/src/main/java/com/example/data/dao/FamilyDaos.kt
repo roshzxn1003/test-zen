@@ -28,6 +28,9 @@ interface FamilyDao {
     @Query("DELETE FROM families WHERE id = :id")
     suspend fun deleteFamilyById(id: String)
 
+    @Query("DELETE FROM families")
+    suspend fun deleteAllFamilies()
+
     @Query("SELECT * FROM families WHERE id = :id")
     suspend fun getFamilyById(id: String): FamilyEntity?
 
@@ -66,6 +69,9 @@ interface FamilyMemberDao {
 
     @Query("DELETE FROM family_members WHERE id = :id")
     suspend fun deleteMemberById(id: String)
+
+    @Query("DELETE FROM family_members")
+    suspend fun deleteAllFamilyMembers()
 
     @Query("SELECT * FROM family_members WHERE id = :id LIMIT 1")
     suspend fun getMemberById(id: String): FamilyMemberEntity?

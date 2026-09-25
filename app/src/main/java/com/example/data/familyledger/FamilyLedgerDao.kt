@@ -53,6 +53,10 @@ interface FamilyLedgerDao {
     @Query("DELETE FROM ledger_transactions WHERE transactionId = :transactionId")
     suspend fun deleteTransactionPermanently(transactionId: String)
 
+    /** Clears all family ledger transactions from local Room. */
+    @Query("DELETE FROM ledger_transactions")
+    suspend fun clearAllLedgerTransactions()
+
     // --- Outbox queries (pending states for flush engine) ---
 
     /** Created locally while online — need to push to remote backend. */
@@ -105,6 +109,10 @@ interface FamilyLedgerDao {
     /** Batch upsert for pull operations. */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertFamilyVaults(vaults: List<FamilyVault>)
+
+    /** Clears all family vaults from local Room. */
+    @Query("DELETE FROM family_vaults")
+    suspend fun clearAllFamilyVaults()
 
     // =========================================================================
     // FAMILY VAULT MEMBERS
@@ -167,4 +175,8 @@ interface FamilyLedgerDao {
 
     @Query("SELECT * FROM family_vault_members WHERE syncStatus = 'PENDING_DELETE' OR isDeleted = 1")
     suspend fun getPendingDeleteMembers(): List<FamilyVaultMember>
+
+    /** Clears all family vault members from local Room. */
+    @Query("DELETE FROM family_vault_members")
+    suspend fun clearAllFamilyVaultMembers()
 }

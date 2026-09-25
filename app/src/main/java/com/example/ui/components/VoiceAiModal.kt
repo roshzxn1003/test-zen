@@ -291,11 +291,15 @@ fun VoiceAiModal(
     val examplePhrases = remember {
         listOf(
             "Spent 350 for lunch via UPI",
+            "Innaiku movie ki 250 selavu",
             "Paid 1200 electricity bill cash",
+            "Veetu vaadagai 15000 family vault",
             "500 petrol PhonePe",
+            "Appavukku marundhu vanginen 450",
             "Received 50000 salary in bank",
+            "Kadaila groceries 1200 selavu",
             "Got 200 cashback on Google Pay",
-            "Groceries 800 credit card"
+            "Dinner with roommates 800 split"
         )
     }
 

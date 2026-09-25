@@ -30,6 +30,7 @@ import java.util.*
 import com.example.data.ai.VoiceAssistantIntent
 import com.example.data.ai.VoiceAssistantResponse
 import com.example.data.network.SupabaseClientConfig
+import com.example.data.upi.UpiNotificationListenerService
 
 enum class MessageSender {
     USER,
@@ -252,6 +253,11 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val _isNotificationsEnabled = MutableStateFlow(prefs.getBoolean("is_notifications_enabled", true))
     val isNotificationsEnabled: StateFlow<Boolean> = _isNotificationsEnabled.asStateFlow()
 
+    private val _isUpiAutoDetectionEnabled = MutableStateFlow<Boolean>(
+        UpiNotificationListenerService.isAutoDetectionEnabled(application)
+    )
+    val isUpiAutoDetectionEnabled: StateFlow<Boolean> = _isUpiAutoDetectionEnabled.asStateFlow()
+
     private val _userSupabaseId = MutableStateFlow<String?>(prefs.getString("user_supabase_id", null))
     val userSupabaseId: StateFlow<String?> = _userSupabaseId.asStateFlow()
 
@@ -283,6 +289,19 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     fun setNotificationsEnabled(enabled: Boolean) {
         _isNotificationsEnabled.value = enabled
         prefs.edit().putBoolean("is_notifications_enabled", enabled).apply()
+    }
+
+    fun setUpiAutoDetectionEnabled(enabled: Boolean) {
+        _isUpiAutoDetectionEnabled.value = enabled
+        UpiNotificationListenerService.setAutoDetectionEnabled(getApplication<Application>(), enabled)
+    }
+
+    fun simulateTestUpiPayment(
+        amount: Double = 150.0,
+        payeeName: String = "Chai Point",
+        sourceApp: String = "Google Pay"
+    ) {
+        UpiNotificationListenerService.simulateTestPayment(getApplication<Application>(), amount, payeeName, sourceApp)
     }
 
     fun updateUserName(newName: String) {
@@ -1088,7 +1107,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     fun joinFamily(inviteCode: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val cleanCode = inviteCode.trim().uppercase()
+            val cleanCode = com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode(inviteCode)
+                .ifBlank { inviteCode.trim().uppercase() }
             if (cleanCode.isBlank()) {
                 onResult(false, "Please enter a valid Family ID or Invite Code")
                 return@launch
@@ -1495,9 +1515,12 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun clearAllLocalData() {
-        viewModelScope.launch {
-            val txs = repository.allTransactions.first()
-            txs.forEach { repository.deleteTransaction(it) }
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.wipeLocalDatabase()
+            familyLedgerRepository.clearAllLocalFamilyData()
+            repository.reseedDefaultCategories()
+            _activeFamilyId.value = null
+            prefs.edit().remove("active_family_id").apply()
         }
     }
 

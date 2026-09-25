@@ -127,6 +127,10 @@ ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NU
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
+ALTER TABLE public.categories ALTER COLUMN color SET DEFAULT '#10B981';
+ALTER TABLE public.categories ALTER COLUMN icon SET DEFAULT 'Category';
+DO $$ BEGIN ALTER TABLE public.categories ALTER COLUMN color DROP NOT NULL; EXCEPTION WHEN others THEN null; END $$;
+
 -- 2.5 TRANSACTIONS TABLE
 CREATE TABLE IF NOT EXISTS public.transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -173,6 +177,13 @@ ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT 
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
+-- Safely convert category_id to TEXT if previously created as UUID
+DO $$ BEGIN ALTER TABLE public.transactions ALTER COLUMN category_id TYPE TEXT USING category_id::text; EXCEPTION WHEN others THEN null; END $$;
+ALTER TABLE public.transactions ALTER COLUMN category_id SET DEFAULT 'Other';
+ALTER TABLE public.transactions ALTER COLUMN category SET DEFAULT 'Other';
+ALTER TABLE public.transactions ALTER COLUMN title SET DEFAULT 'Transaction';
+ALTER TABLE public.transactions ALTER COLUMN description SET DEFAULT '';
+
 -- 2.6 BUDGETS TABLE
 CREATE TABLE IF NOT EXISTS public.budgets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -208,6 +219,11 @@ ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS end_date TIMESTAMPTZ;
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- Safely convert category_id in budgets to TEXT if previously created as UUID
+DO $$ BEGIN ALTER TABLE public.budgets ALTER COLUMN category_id TYPE TEXT USING category_id::text; EXCEPTION WHEN others THEN null; END $$;
+ALTER TABLE public.budgets ALTER COLUMN category_id SET DEFAULT 'Other';
+ALTER TABLE public.budgets ALTER COLUMN category_name SET DEFAULT 'Other';
 
 -- 2.7 SAVINGS GOALS & CONTRIBUTIONS
 CREATE TABLE IF NOT EXISTS public.savings_goals (
@@ -291,24 +307,45 @@ CREATE TABLE IF NOT EXISTS public.family_invitations (
 CREATE OR REPLACE FUNCTION public.sync_transaction_columns()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.transaction_type IS NOT NULL AND NEW.transaction_type <> '' THEN
+    -- 1. Sync transaction_type and type
+    IF NEW.transaction_type IS NOT NULL AND trim(NEW.transaction_type) <> '' THEN
         NEW.type := NEW.transaction_type;
-    ELSIF NEW.type IS NOT NULL AND NEW.type <> '' THEN
+    ELSIF NEW.type IS NOT NULL AND trim(NEW.type) <> '' THEN
         NEW.transaction_type := NEW.type;
+    ELSE
+        NEW.type := 'EXPENSE';
+        NEW.transaction_type := 'EXPENSE';
     END IF;
 
-    IF NEW.category_id IS NOT NULL AND NEW.category_id <> '' THEN
-        NEW.category := NEW.category_id;
-    ELSIF NEW.category IS NOT NULL AND NEW.category <> '' THEN
+    -- 2. Safely sync category and category_id without invalid UUID casts
+    IF NEW.category IS NOT NULL AND trim(NEW.category) <> '' THEN
         NEW.category_id := NEW.category;
+    ELSIF NEW.category_id IS NOT NULL AND trim(NEW.category_id::text) <> '' THEN
+        NEW.category := NEW.category_id::text;
+    ELSE
+        NEW.category := 'Other';
+        NEW.category_id := 'Other';
     END IF;
 
-    IF NEW.title IS NULL OR NEW.title = '' THEN
-        NEW.title := COALESCE(NULLIF(NEW.description, ''), 'Transaction');
+    -- 3. Ensure title and description are properly initialized
+    IF NEW.title IS NULL OR trim(NEW.title) = '' THEN
+        NEW.title := COALESCE(NULLIF(trim(NEW.description), ''), 'Transaction');
     END IF;
     IF NEW.description IS NULL THEN
         NEW.description := COALESCE(NEW.title, '');
     END IF;
+
+    -- 4. Default sync_version and dates
+    IF NEW.sync_version IS NULL THEN
+        NEW.sync_version := 1;
+    END IF;
+    IF NEW.transaction_date IS NULL THEN
+        NEW.transaction_date := NOW();
+    END IF;
+    IF NEW.created_at IS NULL THEN
+        NEW.created_at := NOW();
+    END IF;
+    NEW.updated_at := NOW();
 
     RETURN NEW;
 END;
@@ -466,19 +503,31 @@ CREATE POLICY "audit_logs_access" ON public.audit_logs FOR ALL TO anon, authenti
 CREATE POLICY "family_invitations_access" ON public.family_invitations FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- =============================================================================
--- 7. REALTIME SUBSCRIPTION CONFIGURATION
+-- 7. REALTIME SUBSCRIPTION CONFIGURATION (SAFE & IDEMPOTENT)
 -- =============================================================================
 DO $$
+DECLARE
+    t text;
+    target_tables text[] := ARRAY[
+        'profiles', 'families', 'family_members', 'categories',
+        'transactions', 'budgets', 'savings_goals'
+    ];
 BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE 
-        public.profiles,
-        public.families,
-        public.family_members,
-        public.categories,
-        public.transactions,
-        public.budgets,
-        public.savings_goals;
-EXCEPTION WHEN others THEN null;
+    FOREACH t IN ARRAY target_tables
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_publication_tables 
+            WHERE pubname = 'supabase_realtime' 
+              AND schemaname = 'public' 
+              AND tablename = t
+        ) THEN
+            BEGIN
+                EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+            EXCEPTION WHEN OTHERS THEN
+                NULL;
+            END;
+        END IF;
+    END LOOP;
 END $$;
 
 -- =============================================================================
@@ -612,7 +661,10 @@ BEGIN
     WHERE family_id = p_family_id AND finance_scope = 'FAMILY' AND NOT is_deleted;
 
     SELECT jsonb_agg(tx_row) INTO v_recent_txs FROM (
-        SELECT id, title, amount, COALESCE(transaction_type, type) as type, COALESCE(category, category_id) as category, payment_method, paid_by_name, transaction_date
+        SELECT id, title, amount,
+               COALESCE(transaction_type, type, 'EXPENSE') as type,
+               COALESCE(category, category_id::text, 'Other') as category,
+               payment_method, paid_by_name, transaction_date
         FROM public.transactions
         WHERE family_id = p_family_id AND finance_scope = 'FAMILY' AND NOT is_deleted
         ORDER BY transaction_date DESC
@@ -620,10 +672,10 @@ BEGIN
     ) tx_row;
 
     SELECT jsonb_agg(cat_row) INTO v_category_spending FROM (
-        SELECT COALESCE(category, category_id) as category, SUM(amount) as total
+        SELECT COALESCE(category, category_id::text, 'Other') as category, SUM(amount) as total
         FROM public.transactions
-        WHERE family_id = p_family_id AND finance_scope = 'FAMILY' AND COALESCE(transaction_type, type) = 'EXPENSE' AND NOT is_deleted
-        GROUP BY COALESCE(category, category_id)
+        WHERE family_id = p_family_id AND finance_scope = 'FAMILY' AND COALESCE(transaction_type, type, 'EXPENSE') = 'EXPENSE' AND NOT is_deleted
+        GROUP BY COALESCE(category, category_id::text, 'Other')
         ORDER BY total DESC
         LIMIT 6
     ) cat_row;
