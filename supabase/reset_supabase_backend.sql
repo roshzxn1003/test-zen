@@ -1,3 +1,4 @@
+
 -- =============================================================================
 -- ZENITH FINANCE: COMPLETE BACKEND RESET & CLEAN REBUILD SCRIPT
 -- Execute this entire script in your Supabase SQL Editor.
