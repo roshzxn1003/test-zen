@@ -1,0 +1,158 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with personal configuration and settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Unique user ID matching auth.uid" },
+        "fullName": { "type": "string", "maxLength": 120, "description": "Display name of the user" },
+        "email": { "type": "string", "format": "email", "maxLength": 150, "description": "User email address" },
+        "avatarUrl": { "type": "string", "maxLength": 500, "description": "Avatar image URL" },
+        "currencySymbol": { "type": "string", "maxLength": 8, "description": "Preferred currency symbol like ₹ or $" },
+        "createdAt": { "type": "string", "description": "Account creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last profile update timestamp" }
+      },
+      "required": ["id", "fullName", "email"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial income or expense transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Transaction unique identifier" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 140, "description": "Transaction title or description" },
+        "amount": { "type": "number", "description": "Transaction amount in primary currency units" },
+        "type": { "type": "string", "enum": ["EXPENSE", "INCOME"], "description": "Transaction type" },
+        "category": { "type": "string", "minLength": 1, "maxLength": 60, "description": "Category name" },
+        "categoryIconName": { "type": "string", "maxLength": 50, "description": "Icon identifier for category" },
+        "note": { "type": "string", "maxLength": 500, "description": "Additional notes" },
+        "paymentMethod": { "type": "string", "enum": ["UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer"], "description": "Payment method" },
+        "dateMillis": { "type": "number", "description": "Epoch timestamp in milliseconds" },
+        "financeScope": { "type": "string", "enum": ["PERSONAL", "FAMILY"], "description": "Scope of the transaction" },
+        "familyId": { "type": "string", "maxLength": 128, "description": "Associated family vault ID if family scope" },
+        "createdByUserId": { "type": "string", "maxLength": 128, "description": "UID of creator" },
+        "createdByName": { "type": "string", "maxLength": 120, "description": "Name of user who logged the entry" },
+        "receiptImageUri": { "type": "string", "maxLength": 1000, "description": "Attached receipt thumbnail/data URI" },
+        "upiId": { "type": "string", "maxLength": 100, "description": "UPI VPA address" },
+        "upiTransactionId": { "type": "string", "maxLength": 100, "description": "UPI reference number" }
+      },
+      "required": ["id", "title", "amount", "type", "category", "paymentMethod", "dateMillis", "financeScope", "createdByUserId"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "User-defined transaction classification category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Category unique identifier" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60, "description": "Category display title" },
+        "iconName": { "type": "string", "maxLength": 50, "description": "Icon name" },
+        "colorHex": { "type": "string", "maxLength": 20, "description": "Hex color code" },
+        "type": { "type": "string", "enum": ["EXPENSE", "INCOME"], "description": "Expense or income category" }
+      },
+      "required": ["id", "name", "iconName", "colorHex", "type"]
+    },
+    "Budget": {
+      "title": "Budget",
+      "description": "Spending limit allocated to a category for a given period",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Budget unique identifier" },
+        "categoryName": { "type": "string", "minLength": 1, "maxLength": 60, "description": "Target category name" },
+        "monthlyLimit": { "type": "number", "description": "Monetary spending ceiling" },
+        "monthYear": { "type": "string", "maxLength": 20, "description": "Period identifier e.g. 2026-09" },
+        "periodType": { "type": "string", "enum": ["MONTHLY", "WEEKLY", "YEARLY", "CUSTOM"], "description": "Recurrence cycle" },
+        "customPeriodName": { "type": "string", "maxLength": 80, "description": "Custom cycle name" },
+        "financeScope": { "type": "string", "enum": ["PERSONAL", "FAMILY"], "description": "Scope of the budget" },
+        "familyId": { "type": "string", "maxLength": 128, "description": "Family vault ID" }
+      },
+      "required": ["id", "categoryName", "monthlyLimit", "periodType", "financeScope"]
+    },
+    "SavingsGoal": {
+      "title": "SavingsGoal",
+      "description": "Target financial milestone with visual progress tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Savings goal identifier" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Target goal name" },
+        "targetAmount": { "type": "number", "description": "Target funding goal" },
+        "currentAmount": { "type": "number", "description": "Accumulated savings so far" },
+        "targetDateMillis": { "type": "number", "description": "Deadline epoch timestamp" },
+        "iconName": { "type": "string", "maxLength": 50, "description": "Goal visual badge icon" },
+        "colorHex": { "type": "string", "maxLength": 20, "description": "Progress bar color" },
+        "financeScope": { "type": "string", "enum": ["PERSONAL", "FAMILY"], "description": "Scope" },
+        "familyId": { "type": "string", "maxLength": 128, "description": "Associated vault ID" }
+      },
+      "required": ["id", "title", "targetAmount", "currentAmount", "targetDateMillis", "financeScope"]
+    },
+    "FamilyVault": {
+      "title": "FamilyVault",
+      "description": "Shared finance ledger hub for household collaboration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Family vault unique ID" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Vault name" },
+        "createdByUserId": { "type": "string", "maxLength": 128, "description": "Creator UID" },
+        "createdAt": { "type": "number", "description": "Creation timestamp in millis" },
+        "inviteCode": { "type": "string", "maxLength": 32, "description": "6-digit or alphanumeric join code" }
+      },
+      "required": ["id", "name", "createdByUserId", "createdAt", "inviteCode"]
+    },
+    "FamilyMember": {
+      "title": "FamilyMember",
+      "description": "Membership record in a family shared vault",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Member document ID" },
+        "familyId": { "type": "string", "maxLength": 128, "description": "Target vault ID" },
+        "userId": { "type": "string", "maxLength": 128, "description": "Member UID" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Display name" },
+        "role": { "type": "string", "enum": ["ADMIN", "MEMBER", "VIEWER"], "description": "Permission tier" },
+        "joinedAt": { "type": "number", "description": "Join timestamp in millis" }
+      },
+      "required": ["id", "familyId", "userId", "name", "role", "joinedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile with display metadata and currency preference"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Personal income and expense transactions"
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Personal custom transaction categories"
+    },
+    "/users/{userId}/budgets/{budgetId}": {
+      "schema": "Budget",
+      "description": "Personal monthly category spending limits"
+    },
+    "/users/{userId}/savingsGoals/{goalId}": {
+      "schema": "SavingsGoal",
+      "description": "Personal savings goals and milestone targets"
+    },
+    "/familyVaults/{vaultId}": {
+      "schema": "FamilyVault",
+      "description": "Shared household finance ledger vault"
+    },
+    "/familyVaults/{vaultId}/members/{memberId}": {
+      "schema": "FamilyMember",
+      "description": "Authorized members and roles for this family vault"
+    },
+    "/familyVaults/{vaultId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Shared expense transactions logged inside this family vault"
+    },
+    "/familyVaults/{vaultId}/budgets/{budgetId}": {
+      "schema": "Budget",
+      "description": "Shared category spending budgets for this family vault"
+    },
+    "/familyVaults/{vaultId}/savingsGoals/{goalId}": {
+      "schema": "SavingsGoal",
+      "description": "Shared household savings goals"
+    }
+  }
+}

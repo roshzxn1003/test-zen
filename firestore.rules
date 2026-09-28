@@ -1,0 +1,229 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net - Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isFamilyMember(vaultId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/familyVaults/$(vaultId)/members/$(request.auth.uid));
+    }
+
+    function getFamilyMemberData(vaultId) {
+      return get(/databases/$(database)/documents/familyVaults/$(vaultId)/members/$(request.auth.uid)).data;
+    }
+
+    function isFamilyAdmin(vaultId) {
+      return isFamilyMember(vaultId) && getFamilyMemberData(vaultId).role == 'ADMIN';
+    }
+
+    function isFamilyContributor(vaultId) {
+      return isFamilyMember(vaultId) && (getFamilyMemberData(vaultId).role == 'ADMIN' || getFamilyMemberData(vaultId).role == 'MEMBER');
+    }
+
+    // --- Data Validation Helpers ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'fullName', 'email'])
+        && data.id is string && data.id == request.auth.uid
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+        && data.email is string && data.email.size() <= 150
+        && (!('currencySymbol' in data) || (data.currencySymbol is string && data.currencySymbol.size() <= 8))
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500));
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'title', 'amount', 'type', 'category', 'paymentMethod', 'dateMillis', 'financeScope', 'createdByUserId'])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 140
+        && (data.amount is int || data.amount is float) && data.amount >= 0
+        && (data.type == 'EXPENSE' || data.type == 'INCOME')
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 60
+        && data.paymentMethod in ['UPI', 'Cash', 'Credit Card', 'Debit Card', 'Bank Transfer']
+        && (data.dateMillis is int || data.dateMillis is float)
+        && (data.financeScope == 'PERSONAL' || data.financeScope == 'FAMILY')
+        && data.createdByUserId == request.auth.uid
+        && (!('note' in data) || (data.note is string && data.note.size() <= 500))
+        && (!('createdByName' in data) || (data.createdByName is string && data.createdByName.size() <= 120))
+        && (!('upiId' in data) || (data.upiId is string && data.upiId.size() <= 100))
+        && (!('upiTransactionId' in data) || (data.upiTransactionId is string && data.upiTransactionId.size() <= 100))
+        && (!('receiptImageUri' in data) || (data.receiptImageUri is string && data.receiptImageUri.size() <= 1000));
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['id', 'name', 'iconName', 'colorHex', 'type'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && data.iconName is string && data.iconName.size() <= 50
+        && data.colorHex is string && data.colorHex.size() <= 20
+        && (data.type == 'EXPENSE' || data.type == 'INCOME');
+    }
+
+    function isValidBudget(data) {
+      return data.keys().hasAll(['id', 'categoryName', 'monthlyLimit', 'periodType', 'financeScope'])
+        && data.id is string && data.id.size() <= 128
+        && data.categoryName is string && data.categoryName.size() >= 1 && data.categoryName.size() <= 60
+        && (data.monthlyLimit is int || data.monthlyLimit is float) && data.monthlyLimit >= 0
+        && data.periodType in ['MONTHLY', 'WEEKLY', 'YEARLY', 'CUSTOM']
+        && (data.financeScope == 'PERSONAL' || data.financeScope == 'FAMILY')
+        && (!('customPeriodName' in data) || (data.customPeriodName is string && data.customPeriodName.size() <= 80));
+    }
+
+    function isValidSavingsGoal(data) {
+      return data.keys().hasAll(['id', 'title', 'targetAmount', 'currentAmount', 'targetDateMillis', 'financeScope'])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
+        && (data.targetAmount is int || data.targetAmount is float) && data.targetAmount >= 0
+        && (data.currentAmount is int || data.currentAmount is float) && data.currentAmount >= 0
+        && (data.targetDateMillis is int || data.targetDateMillis is float)
+        && (data.financeScope == 'PERSONAL' || data.financeScope == 'FAMILY')
+        && (!('iconName' in data) || (data.iconName is string && data.iconName.size() <= 50))
+        && (!('colorHex' in data) || (data.colorHex is string && data.colorHex.size() <= 20));
+    }
+
+    function isValidFamilyVault(data) {
+      return data.keys().hasAll(['id', 'name', 'createdByUserId', 'createdAt', 'inviteCode'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.createdByUserId == request.auth.uid
+        && (data.createdAt is int || data.createdAt is float)
+        && data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 32;
+    }
+
+    function isValidFamilyMember(data) {
+      return data.keys().hasAll(['id', 'familyId', 'userId', 'name', 'role', 'joinedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.familyId is string && data.familyId.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.role in ['ADMIN', 'MEMBER', 'VIEWER']
+        && (data.joinedAt is int || data.joinedAt is float);
+    }
+
+    // --- Users Collection ---
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) && isValidUserProfile(incoming())
+        && incoming().id == existing().id;
+      allow delete: if isOwner(userId);
+
+      // Personal Transactions
+      match /transactions/{transactionId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(transactionId) && isValidTransaction(incoming());
+        allow update: if isOwner(userId) && isValidTransaction(incoming())
+          && incoming().id == existing().id
+          && incoming().createdByUserId == existing().createdByUserId;
+        allow delete: if isOwner(userId);
+      }
+
+      // Personal Categories
+      match /categories/{categoryId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(categoryId) && isValidCategory(incoming());
+        allow update: if isOwner(userId) && isValidCategory(incoming())
+          && incoming().id == existing().id;
+        allow delete: if isOwner(userId);
+      }
+
+      // Personal Budgets
+      match /budgets/{budgetId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(budgetId) && isValidBudget(incoming());
+        allow update: if isOwner(userId) && isValidBudget(incoming())
+          && incoming().id == existing().id;
+        allow delete: if isOwner(userId);
+      }
+
+      // Personal Savings Goals
+      match /savingsGoals/{goalId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(goalId) && isValidSavingsGoal(incoming());
+        allow update: if isOwner(userId) && isValidSavingsGoal(incoming())
+          && incoming().id == existing().id;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // --- Family Vaults Collection ---
+    match /familyVaults/{vaultId} {
+      allow get: if isFamilyMember(vaultId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(vaultId) && isValidFamilyVault(incoming());
+      allow update: if isFamilyAdmin(vaultId) && isValidFamilyVault(incoming())
+        && incoming().id == existing().id
+        && incoming().createdByUserId == existing().createdByUserId;
+      allow delete: if isFamilyAdmin(vaultId);
+
+      // Family Members
+      match /members/{memberId} {
+        allow get: if isFamilyMember(vaultId);
+        allow list: if isFamilyMember(vaultId);
+        // Creator adds themselves as first admin, or admin adds members, or user joins with matching uid
+        allow create: if isSignedIn() && isValidId(memberId) && isValidFamilyMember(incoming())
+          && (incoming().userId == request.auth.uid || isFamilyAdmin(vaultId));
+        allow update: if isFamilyAdmin(vaultId) && isValidFamilyMember(incoming())
+          && incoming().userId == existing().userId;
+        allow delete: if isFamilyAdmin(vaultId) || (isSignedIn() && existing().userId == request.auth.uid);
+      }
+
+      // Family Transactions
+      match /transactions/{transactionId} {
+        allow get: if isFamilyMember(vaultId);
+        allow list: if isFamilyMember(vaultId);
+        allow create: if isFamilyContributor(vaultId) && isValidId(transactionId) && isValidTransaction(incoming());
+        allow update: if isFamilyContributor(vaultId) && isValidTransaction(incoming())
+          && incoming().id == existing().id
+          && (isFamilyAdmin(vaultId) || existing().createdByUserId == request.auth.uid);
+        allow delete: if isFamilyAdmin(vaultId) || (isFamilyContributor(vaultId) && existing().createdByUserId == request.auth.uid);
+      }
+
+      // Family Budgets
+      match /budgets/{budgetId} {
+        allow get: if isFamilyMember(vaultId);
+        allow list: if isFamilyMember(vaultId);
+        allow create: if isFamilyAdmin(vaultId) && isValidId(budgetId) && isValidBudget(incoming());
+        allow update: if isFamilyAdmin(vaultId) && isValidBudget(incoming())
+          && incoming().id == existing().id;
+        allow delete: if isFamilyAdmin(vaultId);
+      }
+
+      // Family Savings Goals
+      match /savingsGoals/{goalId} {
+        allow get: if isFamilyMember(vaultId);
+        allow list: if isFamilyMember(vaultId);
+        allow create: if isFamilyContributor(vaultId) && isValidId(goalId) && isValidSavingsGoal(incoming());
+        allow update: if isFamilyContributor(vaultId) && isValidSavingsGoal(incoming())
+          && incoming().id == existing().id;
+        allow delete: if isFamilyAdmin(vaultId);
+      }
+    }
+  }
+}
