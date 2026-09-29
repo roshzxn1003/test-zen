@@ -21,17 +21,19 @@ const MainAppContent: React.FC = () => {
   const { selectedTab } = useFinance();
 
   return (
-    <div className="relative min-h-screen bg-[#090d16] text-slate-100 flex flex-col justify-between selection:bg-indigo-500/30 selection:text-indigo-200">
-      {/* Ambient background glow matching Android AmbientBackgroundBrush */}
-      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-96 bg-gradient-to-b from-indigo-950/25 via-slate-900/10 to-transparent pointer-events-none -z-10 blur-3xl" />
+    <div className="relative min-h-screen bg-[#080c14] text-slate-100 flex flex-col justify-between selection:bg-indigo-500/30 selection:text-indigo-200">
+      {/* Dynamic ambient background glow */}
+      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-5xl h-[420px] bg-gradient-to-b from-indigo-950/35 via-cyan-950/10 to-transparent pointer-events-none -z-10 blur-3xl opacity-75" />
+      <div className="fixed -top-24 right-10 w-96 h-96 bg-purple-900/10 rounded-full blur-3xl pointer-events-none -z-10" />
+      <div className="fixed top-1/3 -left-20 w-80 h-80 bg-cyan-950/15 rounded-full blur-3xl pointer-events-none -z-10" />
 
-      {/* Main Container constrained to mobile applet width */}
-      <main className="w-full max-w-lg mx-auto px-4 flex-1 flex flex-col">
-        {/* Top Header */}
-        <Header />
+      {/* Sticky Full-Width Fintech Header */}
+      <Header />
 
-        {/* Tab Views with fluid appearance */}
-        <div className="flex-1 mt-2">
+      {/* Main Container - Scalable & Responsive across mobile, tablet, and desktop */}
+      <main className="w-full max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 flex-1 flex flex-col">
+        {/* Tab Views */}
+        <div className="flex-1 mt-2 sm:mt-4 pb-28 sm:pb-32">
           {selectedTab === 0 && <HomeScreen />}
           {selectedTab === 1 && <TransactionsScreen />}
           {selectedTab === 2 && <BudgetsAndGoalsScreen />}

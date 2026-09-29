@@ -169,8 +169,10 @@ export const BudgetsAndGoalsScreen: React.FC = () => {
 
   return (
     <div className="space-y-4 pb-24">
-      {/* 1. Scope Switcher */}
-      <ScopeSwitcher />
+      {/* 1. Scope Switcher (Mobile Only) */}
+      <div className="md:hidden">
+        <ScopeSwitcher />
+      </div>
 
       {/* 2. Sub-Tabs (Budgets vs Savings Goals) */}
       <div className="flex rounded-2xl bg-slate-900/80 p-1 border border-white/10">

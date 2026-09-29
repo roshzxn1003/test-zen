@@ -117,9 +117,11 @@ export const TransactionsScreen: React.FC = () => {
   );
 
   return (
-    <div className="space-y-4 pb-24">
-      {/* 1. Scope Switcher */}
-      <ScopeSwitcher />
+    <div className="space-y-4 pb-24 md:pb-12">
+      {/* 1. Scope Switcher (Mobile Only) */}
+      <div className="md:hidden">
+        <ScopeSwitcher />
+      </div>
 
       {/* 2. Main Search & Filter Control Hub */}
       <div className="space-y-3 p-4 rounded-3xl bg-slate-900/95 border border-white/10 shadow-xl backdrop-blur-md">

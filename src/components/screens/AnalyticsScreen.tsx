@@ -95,8 +95,10 @@ export const AnalyticsScreen: React.FC = () => {
 
   return (
     <div className="space-y-4 pb-24">
-      {/* 1. Scope Switcher */}
-      <ScopeSwitcher />
+      {/* 1. Scope Switcher (Mobile Only) */}
+      <div className="md:hidden">
+        <ScopeSwitcher />
+      </div>
 
       {/* 2. Key Metrics Row */}
       <div className="grid grid-cols-2 gap-3">
