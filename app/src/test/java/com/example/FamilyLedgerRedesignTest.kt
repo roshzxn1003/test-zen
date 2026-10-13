@@ -288,4 +288,67 @@ class FamilyLedgerRedesignTest {
         assertEquals(550.0, list[0].amount, 0.001)
         assertEquals("Groceries - Updated", list[0].title)
     }
+
+    @Test
+    fun testObserveMembersCalculatesBothExpenseAndIncome() = runBlocking {
+        val familyId = "fam_income_test"
+        repository.createFamilyVault("Income Test Vault", "user_1", "Arun")
+        val member = repository.addMember(familyId, "Arun", FamilyRole.ADMIN, "user_1")
+
+        // 1. Add Expense
+        repository.createTransaction(
+            familyId = familyId,
+            title = "Groceries",
+            amount = 1200.0,
+            category = "Food & Dining",
+            type = TransactionType.EXPENSE,
+            paymentMethod = "UPI",
+            paidByMemberId = member.memberId,
+            paidByName = "Arun",
+            dateMillis = System.currentTimeMillis(),
+            currentUserId = "user_1"
+        )
+
+        // 2. Add Shared Income
+        repository.createTransaction(
+            familyId = familyId,
+            title = "Rental Income",
+            amount = 8000.0,
+            category = "Investments",
+            type = TransactionType.INCOME,
+            paymentMethod = "Bank Transfer",
+            paidByMemberId = member.memberId,
+            paidByName = "Arun",
+            dateMillis = System.currentTimeMillis(),
+            currentUserId = "user_1"
+        )
+
+        val members = repository.observeMembers(familyId).first()
+        val arun = members.find { it.memberId == member.memberId }
+        assertNotNull(arun)
+        assertEquals(1200.0, arun!!.totalPaid, 0.001)
+        assertEquals(8000.0, arun.totalIncome, 0.001)
+        assertEquals(2, arun.transactionCount)
+    }
+
+    @Test
+    fun testCloudLedgerTransactionDtoHandlesNullableUserId() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val rawJson = """
+            {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "family_id": "22222222-2222-2222-2222-222222222222",
+                "title": "Shared WiFi",
+                "amount": 999.0,
+                "transaction_type": "EXPENSE",
+                "payment_method": "UPI",
+                "transaction_date": "2026-10-14T00:00:00Z"
+            }
+        """.trimIndent()
+
+        val dto = json.decodeFromString<CloudLedgerTransactionDto>(rawJson)
+        assertNull(dto.userId)
+        assertEquals(999.0, dto.amount, 0.001)
+        assertEquals("Shared WiFi", dto.title)
+    }
 }

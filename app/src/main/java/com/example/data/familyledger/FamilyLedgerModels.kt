@@ -84,6 +84,8 @@ data class FamilyVaultMember(
     val role: FamilyRole = FamilyRole.MEMBER,
     /** Computed field: sum of expense transaction amounts paid by this member. Not persisted from cloud. */
     val totalPaid: Double = 0.0,
+    /** Computed field: sum of income transaction amounts received by this member. Not persisted from cloud. */
+    val totalIncome: Double = 0.0,
     /** Computed field: count of transactions linked to this member. Not persisted from cloud. */
     val transactionCount: Int = 0,
     val joinedAt: Long = System.currentTimeMillis(),
@@ -128,8 +130,8 @@ data class CloudLedgerTransactionDto(
     @SerialName("category_id") val categoryId: String? = null,
     @SerialName("category_name") val categoryName: String? = null,
     @SerialName("payment_method") val paymentMethod: String = "UPI",
-    /** The auth user ID who owns this record. */
-    @SerialName("user_id") val userId: String,
+    /** The auth user ID who owns this record. Nullable if profile record does not yet exist. */
+    @SerialName("user_id") val userId: String? = null,
     /** family_members.id of the person who physically paid — may differ from userId. */
     @SerialName("paid_by_member_id") val paidByMemberId: String? = null,
     /** Display name of the payer (denormalised for fast rendering). */
@@ -164,7 +166,7 @@ data class CloudFamilyVaultDto(
 data class CloudFamilyMemberDto(
     @SerialName("id") val id: String,
     @SerialName("family_id") val familyId: String,
-    @SerialName("user_id") val userId: String,
+    @SerialName("user_id") val userId: String? = null,
     @SerialName("name") val name: String? = null,
     @SerialName("display_name") val displayName: String? = null,
     @SerialName("role") val role: String = "MEMBER",

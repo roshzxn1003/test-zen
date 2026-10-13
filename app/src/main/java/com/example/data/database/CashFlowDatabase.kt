@@ -13,6 +13,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        try {
+            db.execSQL("ALTER TABLE `family_vault_members` ADD COLUMN `totalIncome` REAL NOT NULL DEFAULT 0.0")
+        } catch (e: Exception) {
+            // Ignore if column already exists
+        }
+    }
+}
+
 val MIGRATION_11_12 = object : Migration(11, 12) {
     override fun migrate(db: SupportSQLiteDatabase) {
         val indexStatements = listOf(
@@ -180,7 +190,7 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         com.example.data.familyledger.FamilyVault::class,
         com.example.data.familyledger.FamilyVaultMember::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class CashFlowDatabase : RoomDatabase() {
@@ -206,7 +216,7 @@ abstract class CashFlowDatabase : RoomDatabase() {
                     CashFlowDatabase::class.java,
                     "cashflow_database"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .fallbackToDestructiveMigration(true)
                     .fallbackToDestructiveMigrationOnDowngrade(true)
                     .addCallback(DatabaseCallback(context.applicationContext))

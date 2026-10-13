@@ -82,16 +82,17 @@ fun HomeScreen(
     val context = LocalContext.current
     var selectedTransactionForDetails by remember { mutableStateOf<TransactionEntity?>(null) }
     var selectedFamilyMemberFilter by remember { mutableStateOf<String?>(null) }
+    var selectedFamilyTypeFilter by remember { mutableStateOf<TransactionType?>(null) }
     var familySubTab by remember { mutableIntStateOf(0) }
 
     val isFamily = currentFinanceScope == FinanceScope.FAMILY
 
-    // Filter transactions if family member is selected
-    val displayedTransactions = remember(state.transactions, selectedFamilyMemberFilter) {
-        if (selectedFamilyMemberFilter == null) {
-            state.transactions
-        } else {
-            state.transactions.filter { it.createdByUserId == selectedFamilyMemberFilter }
+    // Filter transactions if family member or transaction type is selected
+    val displayedTransactions = remember(state.transactions, selectedFamilyMemberFilter, selectedFamilyTypeFilter) {
+        state.transactions.filter { tx ->
+            val matchesMember = selectedFamilyMemberFilter == null || tx.createdByUserId == selectedFamilyMemberFilter
+            val matchesType = selectedFamilyTypeFilter == null || tx.type == selectedFamilyTypeFilter
+            matchesMember && matchesType
         }
     }
 
@@ -639,30 +640,124 @@ fun HomeScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "TOTAL FAMILY VAULT SPENDING",
+                                    text = "FAMILY VAULT NET BALANCE",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.2.sp,
                                     color = PastelCyan
                                 )
-                                Text(
-                                    text = "${familyMembers.size.coerceAtLeast(1)} Members",
-                                    fontSize = 11.sp,
-                                    color = SlateDarkTextSecondary
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, GlassBorderColor)
+                                ) {
+                                    Text(
+                                        text = "${familyMembers.size.coerceAtLeast(1)} Connected Members",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = SlateDarkTextSecondary,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(6.dp))
 
+                            val famNet = familySettlementSummary.familyNetBalance
+                            val netPrefix = if (famNet < 0) "-${state.currencySymbol}" else if (famNet > 0) "+${state.currencySymbol}" else state.currencySymbol
                             Text(
-                                text = "${state.currencySymbol}${String.format(Locale.US, "%,.2f", familySettlementSummary.familyTotalExpense.coerceAtLeast(totalExpense))}",
+                                text = "$netPrefix${String.format(Locale.US, "%,.2f", Math.abs(famNet))}",
                                 fontSize = 34.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color.White,
+                                color = if (famNet >= 0) Color.White else PastelRose,
                                 letterSpacing = (-0.5).sp
                             )
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Dual Shared Income & Shared Expense Metrics
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = EmeraldDarkContainer.copy(alpha = 0.5f),
+                                    border = BorderStroke(1.dp, EmeraldDarkPrimary.copy(alpha = 0.35f)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(EmeraldDarkPrimary.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDownward,
+                                                contentDescription = "Family Income",
+                                                tint = PastelGreen,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text("Group Income", fontSize = 10.sp, color = SlateDarkTextSecondary, maxLines = 1)
+                                            Text(
+                                                "+${state.currencySymbol}${String.format(Locale.US, "%,.0f", familySettlementSummary.familyTotalIncome)}",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PastelGreen,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = PastelRoseContainer.copy(alpha = 0.4f),
+                                    border = BorderStroke(1.dp, PastelRose.copy(alpha = 0.35f)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(PastelRose.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowUpward,
+                                                contentDescription = "Family Expense",
+                                                tint = PastelRose,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text("Group Spends", fontSize = 10.sp, color = SlateDarkTextSecondary, maxLines = 1)
+                                            Text(
+                                                "-${state.currencySymbol}${String.format(Locale.US, "%,.0f", familySettlementSummary.familyTotalExpense)}",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PastelRose,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
 
                             // 3-Metric Interlock: Personal | You Paid | Fair Share
                             Row(
@@ -908,6 +1003,9 @@ fun HomeScreen(
                                     val memberPaid = state.transactions
                                         .filter { it.createdByUserId == member.userId && it.type == TransactionType.EXPENSE }
                                         .sumOf { it.amount }
+                                    val memberIncome = state.transactions
+                                        .filter { it.createdByUserId == member.userId && it.type == TransactionType.INCOME }
+                                        .sumOf { it.amount }
                                     val diff = memberPaid - familySettlementSummary.fairSharePerMember
                                     val totalExp = familySettlementSummary.familyTotalExpense.coerceAtLeast(1.0)
                                     val progress = (memberPaid / totalExp).toFloat().coerceIn(0f, 1f)
@@ -962,12 +1060,23 @@ fun HomeScreen(
                                             }
 
                                             Column(horizontalAlignment = Alignment.End) {
-                                                Text(
-                                                    text = "Paid: ${state.currencySymbol}${String.format(Locale.US, "%,.0f", memberPaid)}",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = SlateDarkTextPrimary
-                                                )
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = "Paid: ${state.currencySymbol}${String.format(Locale.US, "%,.0f", memberPaid)}",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = SlateDarkTextPrimary
+                                                    )
+                                                    if (memberIncome > 0) {
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = "+${state.currencySymbol}${String.format(Locale.US, "%,.0f", memberIncome)}",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = PastelGreen
+                                                        )
+                                                    }
+                                                }
                                                 Text(
                                                     text = if (diff >= 0) "+${state.currencySymbol}${String.format(Locale.US, "%,.0f", diff)} (Owed)" else "-${state.currencySymbol}${String.format(Locale.US, "%,.0f", Math.abs(diff))} (Owes)",
                                                     fontSize = 10.sp,
@@ -1072,6 +1181,32 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // Transaction Type Filter Chips (All, Expenses, Income)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedFamilyTypeFilter == null,
+                        onClick = { selectedFamilyTypeFilter = null },
+                        label = { Text("All Types", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedFamilyTypeFilter == TransactionType.EXPENSE,
+                        onClick = {
+                            selectedFamilyTypeFilter = if (selectedFamilyTypeFilter == TransactionType.EXPENSE) null else TransactionType.EXPENSE
+                        },
+                        label = { Text("Expenses", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedFamilyTypeFilter == TransactionType.INCOME,
+                        onClick = {
+                            selectedFamilyTypeFilter = if (selectedFamilyTypeFilter == TransactionType.INCOME) null else TransactionType.INCOME
+                        },
+                        label = { Text("Income", fontSize = 11.sp) }
+                    )
+                }
+
                 // Member Filter Chips
                 if (familyMembers.isNotEmpty()) {
                     LazyRow(
@@ -1082,7 +1217,7 @@ fun HomeScreen(
                             FilterChip(
                                 selected = selectedFamilyMemberFilter == null,
                                 onClick = { selectedFamilyMemberFilter = null },
-                                label = { Text("All (${familyMembers.size.coerceAtLeast(1)})", fontSize = 11.sp) }
+                                label = { Text("All Members (${familyMembers.size.coerceAtLeast(1)})", fontSize = 11.sp) }
                             )
                         }
                         items(familyMembers) { member ->
@@ -1136,7 +1271,7 @@ fun HomeScreen(
                                 color = SlateDarkTextPrimary
                             )
                             Text(
-                                text = "Add your first shared expense to start tracking with your family.",
+                                text = "Add your first shared expense or income to start tracking with your family.",
                                 fontSize = 12.sp,
                                 color = SlateDarkTextSecondary,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1157,7 +1292,9 @@ fun HomeScreen(
                 }
             } else {
                 items(displayedTransactions.take(8), key = { "family_recent_${it.id}" }) { tx ->
-                    val memberName = familyMembers.firstOrNull { it.userId == tx.createdByUserId }?.name
+                    val memberName = familyMembers.firstOrNull {
+                        it.userId == tx.createdByUserId || it.name.equals(tx.createdByUserId, ignoreCase = true)
+                    }?.name ?: tx.createdByUserId?.takeIf { !it.contains("-") && it != "local_user_1" }
                     TransactionItemCard(
                         transaction = tx,
                         currencySymbol = state.currencySymbol,

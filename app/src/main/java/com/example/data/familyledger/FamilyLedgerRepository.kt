@@ -79,8 +79,12 @@ class FamilyLedgerRepository(
                 val totalPaid = memberTxs
                     .filter { it.type == TransactionType.EXPENSE }
                     .sumOf { it.amount }
+                val totalIncome = memberTxs
+                    .filter { it.type == TransactionType.INCOME }
+                    .sumOf { it.amount }
                 member.copy(
                     totalPaid = totalPaid,
+                    totalIncome = totalIncome,
                     transactionCount = memberTxs.size
                 )
             }

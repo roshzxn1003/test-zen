@@ -58,13 +58,17 @@ data class MemberContributionItem(
     val memberId: String,
     val name: String,
     val totalPaid: Double,
+    val totalIncome: Double = 0.0,
     val shareDiff: Double // positive = paid more than fair share (is owed), negative = owes
 )
 
 data class FamilyLedgerSettlementSummary(
     val personalTotalExpense: Double = 0.0,
     val familyTotalExpense: Double = 0.0,
+    val familyTotalIncome: Double = 0.0,
+    val familyNetBalance: Double = 0.0,
     val userPaidForFamily: Double = 0.0,
+    val userIncomeForFamily: Double = 0.0,
     val fairSharePerMember: Double = 0.0,
     val netSettlementBalance: Double = 0.0, // positive = owed to user, negative = user owes
     val memberCount: Int = 1,
@@ -210,6 +214,14 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             com.example.data.upi.UpiPaymentBus.detectedPayments.collect { payment ->
                 _detectedUpiPayment.value = payment
+            }
+        }
+
+        // Auto-bind Realtime Family Ledger Sync on startup if active family exists
+        viewModelScope.launch(Dispatchers.IO) {
+            val initialFamId = _activeFamilyId.value
+            if (!initialFamId.isNullOrBlank()) {
+                familyLedgerRepository.startSync(initialFamId, currentUserId)
             }
         }
     }
@@ -377,13 +389,20 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         familyMembers
     ) { allTxs, members ->
         val personalExpenses = allTxs.filter { it.financeScope == FinanceScope.PERSONAL && it.type == TransactionType.EXPENSE }.sumOf { it.amount }
-        val familyExpenses = allTxs.filter { it.financeScope == FinanceScope.FAMILY && it.type == TransactionType.EXPENSE }
-        val familyTotal = familyExpenses.sumOf { it.amount }
+        val familyTxs = allTxs.filter { it.financeScope == FinanceScope.FAMILY }
+        val familyExpenses = familyTxs.filter { it.type == TransactionType.EXPENSE }
+        val familyIncomes = familyTxs.filter { it.type == TransactionType.INCOME }
+        val familyTotalExpense = familyExpenses.sumOf { it.amount }
+        val familyTotalIncome = familyIncomes.sumOf { it.amount }
+        val familyNetBalance = familyTotalIncome - familyTotalExpense
 
         val activeMemberCount = members.size.coerceAtLeast(1)
-        val fairShare = if (activeMemberCount > 0) familyTotal / activeMemberCount else 0.0
+        val fairShare = if (activeMemberCount > 0) familyTotalExpense / activeMemberCount else 0.0
 
         val userPaid = familyExpenses.filter {
+            it.createdByUserId == currentUserId || it.createdByUserId == currentUserName
+        }.sumOf { it.amount }
+        val userIncome = familyIncomes.filter {
             it.createdByUserId == currentUserId || it.createdByUserId == currentUserName
         }.sumOf { it.amount }
 
@@ -393,18 +412,25 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             val paid = familyExpenses.filter {
                 it.createdByUserId == member.userId || it.createdByUserId == member.name
             }.sumOf { it.amount }
+            val income = familyIncomes.filter {
+                it.createdByUserId == member.userId || it.createdByUserId == member.name
+            }.sumOf { it.amount }
             MemberContributionItem(
                 memberId = member.userId,
                 name = member.name,
                 totalPaid = paid,
+                totalIncome = income,
                 shareDiff = paid - fairShare
             )
         }
 
         FamilyLedgerSettlementSummary(
             personalTotalExpense = personalExpenses,
-            familyTotalExpense = familyTotal,
+            familyTotalExpense = familyTotalExpense,
+            familyTotalIncome = familyTotalIncome,
+            familyNetBalance = familyNetBalance,
             userPaidForFamily = userPaid,
+            userIncomeForFamily = userIncome,
             fairSharePerMember = fairShare,
             netSettlementBalance = netBalance,
             memberCount = activeMemberCount,
@@ -1059,7 +1085,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     fun ensureFamilyLedger() {
         viewModelScope.launch {
-            getOrCreateFamilyIdSync()
+            val famId = getOrCreateFamilyIdSync()
+            familyLedgerRepository.startSync(famId, currentUserId)
         }
     }
 
@@ -1067,8 +1094,10 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         _activeFamilyId.value = familyId
         if (familyId != null) {
             prefs.edit().putString("active_family_id", familyId).apply()
+            familyLedgerRepository.startSync(familyId, currentUserId)
         } else {
             prefs.edit().remove("active_family_id").apply()
+            familyLedgerRepository.stopSync()
         }
     }
 

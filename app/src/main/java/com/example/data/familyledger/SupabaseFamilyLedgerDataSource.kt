@@ -102,7 +102,7 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
                                         val domainMember = FamilyVaultMember(
                                             memberId = dto.id,
                                             familyId = dto.familyId,
-                                            userId = dto.userId,
+                                            userId = dto.userId ?: "",
                                             name = dto.name ?: dto.displayName ?: "Member",
                                             role = try { FamilyRole.valueOf(dto.role) } catch (e: Exception) { FamilyRole.MEMBER },
                                             joinedAt = parseIsoTimestamp(dto.joinedAt),
@@ -260,7 +260,7 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
                 FamilyVaultMember(
                     memberId = dto.id,
                     familyId = dto.familyId,
-                    userId = dto.userId,
+                    userId = dto.userId ?: "",
                     name = dto.name ?: dto.displayName ?: "Member",
                     role = try { FamilyRole.valueOf(dto.role) } catch (e: Exception) { FamilyRole.MEMBER },
                     joinedAt = parseIsoTimestamp(dto.joinedAt),
@@ -339,7 +339,8 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
             UUID.nameUUIDFromBytes(member.familyId.toByteArray()).toString()
         }
         val validMemberId = if (isValidUuid(member.memberId)) member.memberId else UUID.randomUUID().toString()
-        val validUserId = member.userId.takeIf { isValidUuid(it) } ?: UUID.randomUUID().toString()
+        val currentUser = SupabaseClientConfig.supabase.auth.currentUserOrNull()
+        val validUserId = currentUser?.id ?: member.userId.takeIf { isValidUuid(it) }
         try {
             val dto = CloudFamilyMemberDto(
                 id = validMemberId,
@@ -377,7 +378,7 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
         if (!isAvailable) return@withContext false
         try {
             val currentUser = SupabaseClientConfig.supabase.auth.currentUserOrNull()
-            val authUserId = currentUser?.id ?: tx.createdBy.takeIf { isValidUuid(it) } ?: UUID.randomUUID().toString()
+            val authUserId = currentUser?.id ?: tx.createdBy.takeIf { isValidUuid(it) }
 
             val dto = CloudLedgerTransactionDto(
                 id = tx.transactionId,
@@ -387,6 +388,7 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
                 description = tx.description,
                 amount = tx.amount,
                 transactionType = tx.type.name,
+                type = tx.type.name,
                 category = tx.category.ifBlank { "Other" },
                 categoryId = tx.category.takeIf { isValidUuid(it) } ?: "Other",
                 categoryName = tx.category.ifBlank { "Other" },
@@ -454,8 +456,8 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
             dateMillis = parseIsoTimestamp(dto.transactionDate),
             createdAt = parseIsoTimestamp(dto.createdAt),
             updatedAt = parseIsoTimestamp(dto.updatedAt),
-            createdBy = dto.userId,
-            lastModifiedBy = dto.userId,
+            createdBy = dto.userId ?: "",
+            lastModifiedBy = dto.userId ?: "",
             isDeleted = dto.isDeleted,
             syncStatus = "SYNCED",
             syncVersion = dto.syncVersion
