@@ -275,18 +275,16 @@ fun ProfileScreen(
                             selected = isSelected,
                             onClick = { onCurrencySelect(curr) },
                             label = {
-                                Text(
-                                    text = when (curr) {
-                                        "₹" -> "₹ INR"
-                                        "$" -> "$ USD"
-                                        "€" -> "€ EUR"
-                                        "£" -> "£ GBP"
-                                        "¥" -> "¥ JPY"
-                                        else -> curr
-                                    },
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 11.sp
-                                )
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = curr,
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                        fontSize = 14.sp
+                                    )
+                                }
                             },
                             modifier = Modifier.weight(1f)
                         )

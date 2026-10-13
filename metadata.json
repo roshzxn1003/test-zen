@@ -1,6 +1,6 @@
 {
-  "name": "CashFlow",
-  "description": "Smart Personal Finance & Expense Tracker with AI voice entry, receipt scanning, budgets, and analytics.",
+  "name": "Zenith",
+  "description": "Smart Personal & Family Finance Tracker with AI voice entry, UPI auto-detection, receipt scanning, budgets, and analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

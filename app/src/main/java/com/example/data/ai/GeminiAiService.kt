@@ -80,29 +80,31 @@ object GeminiAiService {
                 PARSING RULES:
                 1. Language: Always output ALL JSON values (title, note, category, payment method) strictly in clean, professional English. Never use Tamil script characters.
                 2. Transaction Type:
-                   - "INCOME": salary, sambalam, freelance, varavu, stipend, bonus, cashback, dividend, received money, credited, refund, interest, allowance, profit.
-                   - "EXPENSE": spent, paid, bought, purchase, ordered, bill, recharge, fee, rent, selavu, kuduthen, vanginen, kattinen, subscription.
+                   - "INCOME": salary, sambalam, freelance, varavu, stipend, bonus, cashback, dividend, received money, credited, refund, interest, allowance, profit, earned.
+                   - "EXPENSE": spent, paid, bought, purchase, ordered, bill, recharge, fee, rent, selavu, kuduthen, vanginen, kattinen, subscription, lent, gave.
                 3. Scope:
-                   - "FAMILY": mentions of family, vault, shared, home, split, joint, house, parents, roommates.
+                   - "FAMILY": mentions of family, vault, shared, home, split, joint, house, veetu, veedu, parents, amma, appa, mom, dad, brother, sister, wife, husband, roommates, household.
                    - "PERSONAL": default unless family/shared context is clear.
-                4. Title: Concise, clear standard English title (e.g., "Lunch", "Movie Tickets", "Monthly Salary", "House Rent", "Medicines for Father", "Swiggy Order", "Rapido Ride", "Electricity Bill", "Groceries", "Tea & Snacks").
-                5. Amount: Numeric value (e.g., 250.0). Accurately convert numeric abbreviations and words:
-                   - "50k" -> 50000.0, "2.5k" -> 2500.0
+                4. Title: Concise, clear standard English title (e.g., "Lunch", "Movie Tickets", "Monthly Salary", "House Rent", "Medicines for Father", "Swiggy Order", "Rapido Ride", "Electricity Bill", "Groceries", "Tea & Snacks", "Petrol / Fuel", "Provisions & Groceries").
+                5. Amount: Numeric value (e.g., 250.0). Accurately convert numeric abbreviations, colloquial units, and spoken number words:
+                   - "50k" -> 50000.0, "2.5k" -> 2500.0, "10k" -> 10000.0
                    - "1.5 lakh" / "1.5 lac" -> 150000.0, "1 crore" -> 10000000.0
-                   - Romanized number words: "nooru" -> 100.0, "irunooru" -> 200.0, "munnooru" -> 300.0, "ainooru" -> 500.0, "aayiram" -> 1000.0, "rendaayiram" -> 2000.0, "anjaayiram" -> 5000.0, "pathaayiram" -> 10000.0.
+                   - "500 rs" / "500 rupees" / "500 bucks" / "₹500" -> 500.0
+                   - Spoken English: "hundred" -> 100.0, "two hundred" -> 200.0, "five hundred" -> 500.0, "one thousand" -> 1000.0, "two thousand" -> 2000.0, "ten thousand" -> 10000.0
+                   - Romanized number words: "nooru" -> 100.0, "irunooru" -> 200.0, "munnooru" -> 300.0, "naanooru" -> 400.0, "ainooru" -> 500.0, "arunooru" -> 600.0, "elanooru" -> 700.0, "ennooru" -> 800.0, "thollaayiram" -> 900.0, "aayiram" -> 1000.0, "rendaayiram" -> 2000.0, "moonaayiram" -> 3000.0, "naalaayiram" -> 4000.0, "anjaayiram" -> 5000.0, "pathaayiram" -> 10000.0, "iruvathaayiram" -> 20000.0, "ambathaayiram" -> 50000.0.
                 6. Category: Choose best from:
-                   - "Food & Dining" (restaurants, delivery, cafes, groceries/dining, tea, snacks, swiggy, zomato)
-                   - "Transportation" (fuel, petrol, diesel, cab, auto, metro, train, flight, rapido, uber, ola, toll, parking)
-                   - "Shopping" (groceries, clothing, electronics, ecommerce, blinkit, zepto, instamart, amazon, flipkart)
-                   - "Entertainment" (movies, cinema, streaming, ott, netflix, spotify, games, outings)
-                   - "Bills & Utilities" (electricity, water, gas, cylinder, wifi, internet, mobile recharge, dth)
-                   - "Housing & Rent" (house rent, apartment maintenance, property tax)
-                   - "Healthcare" (medicines, pharmacy, doctor consultation, hospital, gym, wellness)
-                   - "Education" (school fees, college fees, books, courses, tuition)
-                   - "Salary & Income" (salary, wages, freelance, bonus, consulting, stipend)
-                   - "Investments" (stocks, mutual funds, sip, crypto, gold, dividends, cashback)
+                   - "Food & Dining" (restaurants, delivery, cafes, groceries/dining, tea, snacks, swiggy, zomato, chai, coffee, biryani, meals)
+                   - "Transportation" (fuel, petrol, diesel, cab, auto, metro, train, flight, rapido, uber, ola, toll, parking, vehicle service)
+                   - "Shopping" (groceries, clothing, electronics, ecommerce, blinkit, zepto, instamart, amazon, flipkart, dmart, provisions, maligai, vegetables, fruits)
+                   - "Entertainment" (movies, cinema, streaming, ott, netflix, spotify, games, outings, hotstar, youtube)
+                   - "Bills & Utilities" (electricity, water, gas, cylinder, wifi, internet, mobile recharge, dth, tneb, broadband)
+                   - "Housing & Rent" (house rent, apartment maintenance, property tax, veetu vaadagai)
+                   - "Healthcare" (medicines, pharmacy, doctor consultation, hospital, gym, wellness, marundhu, apollo)
+                   - "Education" (school fees, college fees, books, courses, tuition, stationery)
+                   - "Salary & Income" (salary, wages, freelance, bonus, consulting, stipend, allowance, sambalam)
+                   - "Investments" (stocks, mutual funds, sip, crypto, gold, dividends, cashback, interest)
                    - "Other" (miscellaneous, gifts, donations, transfers)
-                7. Payment Method: Choose best from ("UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer"). Default to "UPI".
+                7. Payment Method: Choose best from ("UPI", "Cash", "Credit Card", "Debit Card", "Bank Transfer"). Default to "UPI". If cash mentioned -> "Cash". If credit card -> "Credit Card". If bank / netbanking / salary -> "Bank Transfer".
                 
                 EXAMPLES:
                 1. "Spent 350 for lunch via UPI" -> {"title": "Lunch", "amount": 350.0, "type": "EXPENSE", "category": "Food & Dining", "paymentMethod": "UPI", "scope": "PERSONAL", "note": "Spent 350 for lunch via UPI"}
@@ -620,7 +622,12 @@ object GeminiAiService {
             lower.contains("our ") || lower.endsWith("our") ||
             lower.contains("roommate") || lower.contains("veetu") ||
             lower.contains("amma") || lower.contains("appa") ||
-            lower.contains("veedu") || lower.contains("vaadagai")
+            lower.contains("veedu") || lower.contains("vaadagai") ||
+            lower.contains("parents") || lower.contains("father") ||
+            lower.contains("mother") || lower.contains("brother") ||
+            lower.contains("sister") || lower.contains("wife") ||
+            lower.contains("husband") || lower.contains("children") ||
+            lower.contains("kids")
         val scope = if (isFamilyScope) FinanceScope.FAMILY else FinanceScope.PERSONAL
 
         // 2. Explicit Income vs Expense Detection
@@ -634,7 +641,8 @@ object GeminiAiService {
             lower.contains("freelance") || lower.contains("refund") ||
             lower.contains("dividend") || lower.contains("allowance") ||
             lower.contains("stipend") || lower.contains("panam vanthuchu") ||
-            lower.contains("kaasu vanthuchu")
+            lower.contains("kaasu vanthuchu") || lower.contains("profit") ||
+            lower.contains("vanthathu")
         )
 
         val type = if (isIncome) TransactionType.INCOME else TransactionType.EXPENSE
@@ -656,6 +664,7 @@ object GeminiAiService {
         var detectedAmount: Double? = null
 
         val numberWords = listOf(
+            "ambathaayiram" to 50000.0,
             "iruvathaayiram" to 20000.0,
             "pathaayiram" to 10000.0,
             "anjaayiram" to 5000.0,
@@ -674,9 +683,24 @@ object GeminiAiService {
             "irunooru" to 200.0,
             "nooru" to 100.0,
             "oru nooru" to 100.0,
+            "fifty thousand" to 50000.0,
+            "twenty thousand" to 20000.0,
+            "fifteen thousand" to 15000.0,
+            "ten thousand" to 10000.0,
+            "five thousand" to 5000.0,
+            "four thousand" to 4000.0,
+            "three thousand" to 3000.0,
             "two thousand" to 2000.0,
             "one thousand" to 1000.0,
-            "five hundred" to 500.0
+            "nine hundred" to 900.0,
+            "eight hundred" to 800.0,
+            "seven hundred" to 700.0,
+            "six hundred" to 600.0,
+            "five hundred" to 500.0,
+            "four hundred" to 400.0,
+            "three hundred" to 300.0,
+            "two hundred" to 200.0,
+            "one hundred" to 100.0
         )
 
         for ((word, wordVal) in numberWords) {
@@ -738,8 +762,12 @@ object GeminiAiService {
 
         val finalAmount = detectedAmount ?: (matchedMeta?.defaultAmount ?: 100.0)
         val finalTitle = matchedMeta?.standardName ?: run {
-            val clean = lower.replace(Regex("""\b(spent|paid|for|in|via|on|got|received|rs|rupees|upi|cash|card|bank|transfer|selavu|varavu|panam|kaasu|poten|kuduthen|vanginen|kattinen|innaiku|veetu|office|ku|la)\b"""), "").trim()
-            if (clean.isNotBlank()) clean.replaceFirstChar { it.uppercase() } else (if (isIncome) "Income" else "Expense")
+            val clean = lower.replace(Regex("""\b(spent|paid|for|in|via|on|got|received|rs|rupees|upi|cash|card|bank|transfer|selavu|varavu|panam|kaasu|poten|kuduthen|vanginen|kattinen|innaiku|veetu|office|ku|la|with|using|and|of|a|an|the)\b"""), " ")
+                .replace(Regex("""\b\d+(?:\.\d+)?\s*(k|thousand|lakh|lac|crore|cr|bucks|rs|rupees)?\b"""), " ")
+                .replace(Regex("""[$₹€£]"""), " ")
+                .trim()
+                .replace(Regex("""\s+"""), " ")
+            if (clean.isNotBlank()) clean.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } } else (if (isIncome) "Income" else "Expense")
         }
         val finalCategory = if (isIncome) {
             matchedMeta?.category ?: "Salary & Income"

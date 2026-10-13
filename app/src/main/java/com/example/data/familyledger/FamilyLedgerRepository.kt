@@ -452,6 +452,16 @@ class FamilyLedgerRepository(
         dateMillis: Long,
         currentUserId: String
     ): LedgerTransaction = withContext(Dispatchers.IO) {
+        if (existing.createdBy.isNotBlank() && existing.createdBy != currentUserId) {
+            val members = ledgerDao.getMembersForFamily(existing.familyId).first()
+            val currentMember = members.find { it.userId == currentUserId }
+            val isAdmin = currentMember?.role == FamilyRole.ADMIN
+            if (!isAdmin && existing.paidByMemberId != currentMember?.memberId && existing.paidByMemberId != currentUserId) {
+                Log.w(tag, "UNAUTHORIZED UPDATE: user $currentUserId cannot edit entry created by ${existing.createdBy}")
+                throw IllegalAccessException("You can only edit entries you created.")
+            }
+        }
+
         val now = System.currentTimeMillis()
         val pendingStatus = if (cloudDataSource.isAvailable) "PENDING_UPDATE" else "OFFLINE"
 
@@ -496,10 +506,22 @@ class FamilyLedgerRepository(
     /**
      * Soft-deletes a transaction: marks locally as deleted, then attempts
      * cloud soft-delete. On success, removes from local Room permanently.
+     * Enforces that only the creator (or family admin) can delete it.
      */
     suspend fun deleteTransaction(transactionId: String, currentUserId: String): Boolean =
         withContext(Dispatchers.IO) {
-            ledgerDao.getTransactionById(transactionId) ?: return@withContext false
+            val existing = ledgerDao.getTransactionById(transactionId) ?: return@withContext false
+
+            if (existing.createdBy.isNotBlank() && existing.createdBy != currentUserId) {
+                val members = ledgerDao.getMembersForFamily(existing.familyId).first()
+                val currentMember = members.find { it.userId == currentUserId }
+                val isAdmin = currentMember?.role == FamilyRole.ADMIN
+                if (!isAdmin && existing.paidByMemberId != currentMember?.memberId && existing.paidByMemberId != currentUserId) {
+                    Log.w(tag, "UNAUTHORIZED DELETE: user $currentUserId cannot delete entry created by ${existing.createdBy}")
+                    throw IllegalAccessException("You can only delete entries you created.")
+                }
+            }
+
             val now = System.currentTimeMillis()
 
             ledgerDao.markTransactionDeleted(transactionId, now)

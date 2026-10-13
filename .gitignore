@@ -14,4 +14,7 @@ app/release/
 .cxx
 .env
 debug.keystore
-*.py
+*.apk
+*.aab
+__pycache__/
+*.pyc

@@ -142,4 +142,59 @@ class FamilyLedgerSecurityTest {
         assertFalse(isValidUuid(""))
         assertFalse(isValidUuid(null))
     }
+
+    @Test
+    fun testIndividualOwnershipRuleEnforcesCreatorPermissions() {
+        fun canModify(
+            tx: LedgerTransaction,
+            currentUserId: String,
+            currentMember: FamilyVaultMember?
+        ): Boolean {
+            if (tx.createdBy.isBlank()) return true
+            if (tx.createdBy == currentUserId) return true
+            if (currentMember?.role == FamilyRole.ADMIN) return true
+            return tx.paidByMemberId == currentMember?.memberId || tx.paidByMemberId == currentUserId
+        }
+
+        val aliceMember = FamilyVaultMember(
+            memberId = "mem_alice",
+            familyId = "fam_1",
+            userId = "user_alice",
+            name = "Alice",
+            role = FamilyRole.MEMBER
+        )
+        val bobMember = FamilyVaultMember(
+            memberId = "mem_bob",
+            familyId = "fam_1",
+            userId = "user_bob",
+            name = "Bob",
+            role = FamilyRole.MEMBER
+        )
+        val adminMember = FamilyVaultMember(
+            memberId = "mem_admin",
+            familyId = "fam_1",
+            userId = "user_admin",
+            name = "Admin",
+            role = FamilyRole.ADMIN
+        )
+
+        val aliceTx = LedgerTransaction(
+            transactionId = "tx_alice_1",
+            familyId = "fam_1",
+            title = "Alice's Groceries",
+            amount = 450.0,
+            createdBy = "user_alice",
+            paidByMemberId = "mem_alice",
+            paidByName = "Alice"
+        )
+
+        // Alice can modify her own transaction
+        assertTrue(canModify(aliceTx, "user_alice", aliceMember))
+
+        // Bob CANNOT modify Alice's transaction
+        assertFalse(canModify(aliceTx, "user_bob", bobMember))
+
+        // Admin CAN modify any member's transaction
+        assertTrue(canModify(aliceTx, "user_admin", adminMember))
+    }
 }

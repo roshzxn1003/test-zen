@@ -347,17 +347,26 @@ fun FamilyLedgerScreen(
                     when (currentTab) {
                         0 -> FamilyLedgerDashboard(
                             state = state,
+                            canModifyTransaction = { viewModel.canModifyTransaction(it) },
                             onOpenAddTransaction = { type ->
                                 transactionToEdit = null
                                 defaultTypeForDialog = type
                                 showAddEditDialog = true
                             },
                             onEditTransaction = { tx ->
-                                transactionToEdit = tx
-                                showAddEditDialog = true
+                                if (viewModel.canModifyTransaction(tx)) {
+                                    transactionToEdit = tx
+                                    showAddEditDialog = true
+                                } else {
+                                    Toast.makeText(context, "Only ${tx.paidByName} can edit this entry.", Toast.LENGTH_SHORT).show()
+                                }
                             },
                             onDeleteTransaction = { tx ->
-                                transactionToDelete = tx
+                                if (viewModel.canModifyTransaction(tx)) {
+                                    transactionToDelete = tx
+                                } else {
+                                    Toast.makeText(context, "Only ${tx.paidByName} can delete this entry.", Toast.LENGTH_SHORT).show()
+                                }
                             },
                             onNavigateToTransactions = { viewModel.setSubTab(1) },
                             onNavigateToMembers = { viewModel.setSubTab(2) },
@@ -368,6 +377,7 @@ fun FamilyLedgerScreen(
                         )
                         1 -> FamilyLedgerTransactionsList(
                             state = state,
+                            canModifyTransaction = { viewModel.canModifyTransaction(it) },
                             onSearchChange = { viewModel.setSearchQuery(it) },
                             onFilterTypeChange = { viewModel.setFilterType(it) },
                             onFilterCategoryChange = { viewModel.setFilterCategory(it) },
@@ -379,11 +389,19 @@ fun FamilyLedgerScreen(
                                 showAddEditDialog = true
                             },
                             onEditTransaction = { tx ->
-                                transactionToEdit = tx
-                                showAddEditDialog = true
+                                if (viewModel.canModifyTransaction(tx)) {
+                                    transactionToEdit = tx
+                                    showAddEditDialog = true
+                                } else {
+                                    Toast.makeText(context, "Only ${tx.paidByName} can edit this entry.", Toast.LENGTH_SHORT).show()
+                                }
                             },
                             onDeleteTransaction = { tx ->
-                                transactionToDelete = tx
+                                if (viewModel.canModifyTransaction(tx)) {
+                                    transactionToDelete = tx
+                                } else {
+                                    Toast.makeText(context, "Only ${tx.paidByName} can delete this entry.", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         )
                         2 -> FamilyLedgerMembersView(

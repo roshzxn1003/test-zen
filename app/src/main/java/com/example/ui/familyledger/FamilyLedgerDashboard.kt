@@ -41,6 +41,7 @@ import java.util.*
 fun FamilyLedgerDashboard(
     state: FamilyLedgerUiState,
     currencySymbol: String = "₹",
+    canModifyTransaction: (LedgerTransaction) -> Boolean = { true },
     onOpenAddTransaction: (TransactionType) -> Unit,
     onEditTransaction: (LedgerTransaction) -> Unit,
     onDeleteTransaction: (LedgerTransaction) -> Unit,
@@ -488,9 +489,11 @@ fun FamilyLedgerDashboard(
             }
         } else {
             items(recentTransactions, key = { it.transactionId }) { tx ->
+                val canModify = canModifyTransaction(tx)
                 ModernLedgerTransactionCard(
                     transaction = tx,
                     currencySymbol = currencySymbol,
+                    canModify = canModify,
                     onEdit = { onEditTransaction(tx) },
                     onDelete = { onDeleteTransaction(tx) }
                 )
@@ -547,9 +550,11 @@ fun QuickActionButton(
 fun ModernLedgerTransactionCard(
     transaction: LedgerTransaction,
     currencySymbol: String = "₹",
+    canModify: Boolean = true,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     val isExpense = transaction.type == TransactionType.EXPENSE
     val formattedDate = remember(transaction.dateMillis) {
@@ -580,7 +585,17 @@ fun ModernLedgerTransactionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .clickable { onEdit() }
+            .clickable {
+                if (canModify) {
+                    onEdit()
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Entry added by ${transaction.paidByName}. Only author can edit.",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
     ) {
         Row(
             modifier = Modifier
@@ -625,13 +640,13 @@ fun ModernLedgerTransactionCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = GlassCardBgElevated
+                            color = if (canModify) PastelCyan.copy(alpha = 0.15f) else GlassCardBgElevated
                         ) {
                             Text(
-                                text = "Paid by ${transaction.paidByName}",
+                                text = if (canModify) "Added by You" else "Paid by ${transaction.paidByName}",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = PastelCyan,
+                                color = if (canModify) PastelCyan else SlateDarkTextSecondary,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -673,22 +688,31 @@ fun ModernLedgerTransactionCard(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Edit Entry") },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onEdit()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = PastelRose) },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = PastelRose) },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            }
-                        )
+                        if (canModify) {
+                            DropdownMenuItem(
+                                text = { Text("Edit Entry") },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onEdit()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = PastelRose) },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = PastelRose) },
+                                onClick = {
+                                    showMenu = false
+                                    onDelete()
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("Added by ${transaction.paidByName} (Protected)", fontSize = 12.sp, color = SlateDarkTextMuted) },
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = SlateDarkTextMuted) },
+                                enabled = false,
+                                onClick = {}
+                            )
+                        }
                     }
                 }
             }

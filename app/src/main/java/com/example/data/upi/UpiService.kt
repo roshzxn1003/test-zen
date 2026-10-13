@@ -1094,55 +1094,27 @@ object UpiService {
                 pm.getLaunchIntentForPackage(PAYTM_PACKAGE)?.let { return it }
             }
             GOOGLE_PAY_PACKAGE -> {
-                // Google Pay: try upi://pay with GPay package or launch intent
-                try {
-                    val gpayIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")).apply {
-                        setPackage(GOOGLE_PAY_PACKAGE)
-                    }
-                    if (gpayIntent.resolveActivity(pm) != null) {
-                        return gpayIntent
-                    }
-                } catch (e: Exception) {
-                    // Fallback
-                }
-
                 pm.getLaunchIntentForPackage(GOOGLE_PAY_PACKAGE)?.let { return it }
             }
             BHIM_PACKAGE -> {
-                try {
-                    val bhimIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")).apply {
-                        setPackage(BHIM_PACKAGE)
-                    }
-                    if (bhimIntent.resolveActivity(pm) != null) {
-                        return bhimIntent
-                    }
-                } catch (e: Exception) {
-                    // Fallback
-                }
-
                 pm.getLaunchIntentForPackage(BHIM_PACKAGE)?.let { return it }
             }
             else -> {
                 if (!targetPackage.isNullOrBlank()) {
-                    try {
-                        val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")).apply {
-                            setPackage(targetPackage)
-                        }
-                        if (appIntent.resolveActivity(pm) != null) {
-                            return appIntent
-                        }
-                    } catch (e: Exception) {
-                        // Fallback
-                    }
-
                     pm.getLaunchIntentForPackage(targetPackage)?.let { return it }
                 }
             }
         }
 
-        // Generic fallback: upi://pay chooser
+        // Generic fallback: launch the first installed UPI app or fallback safely
+        val installed = installedUpiApps(context)
+        val firstApp = installed.firstOrNull()
+        if (firstApp != null) {
+            pm.getLaunchIntentForPackage(firstApp.packageName)?.let { return it }
+        }
+
         val genericIntent = Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay"))
-        return Intent.createChooser(genericIntent, "Open UPI App Scanner")
+        return Intent.createChooser(genericIntent, "Open UPI App")
     }
 
     // ------------------------------------------------------------

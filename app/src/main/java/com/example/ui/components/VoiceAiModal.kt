@@ -1,8 +1,13 @@
 package com.example.ui.components
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -87,6 +92,8 @@ fun VoiceAiModal(
     var liveAudioLevel by remember { mutableFloatStateOf(0f) }
 
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    var audioFocusRequest by remember { mutableStateOf<Any?>(null) }
 
     // Pulsing animation for listening microphone
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -111,6 +118,21 @@ fun VoiceAiModal(
         }
         speechRecognizer = null
         liveAudioLevel = 0f
+
+        // Release audio focus cleanly
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                (audioFocusRequest as? AudioFocusRequest)?.let {
+                    audioManager?.abandonAudioFocusRequest(it)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(null)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        audioFocusRequest = null
     }
 
     fun handleProcessQuery(query: String) {
@@ -143,10 +165,18 @@ fun VoiceAiModal(
 
     fun launchSystemVoiceIntent() {
         try {
+            val defaultLocaleTag = Locale.getDefault().toLanguageTag()
+            val additionalLangs = if (defaultLocaleTag != "en-IN") {
+                arrayOf(defaultLocaleTag, "en-US", "en-GB")
+            } else {
+                arrayOf("en-US", "en-GB")
+            }
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-IN")
+                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", additionalLangs)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak expense or income in English...")
             }
             systemVoiceLauncher.launch(intent)
@@ -191,19 +221,49 @@ fun VoiceAiModal(
             return
         }
 
+        // Request exclusive audio focus to silence ambient background media during speech capture
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val focusReq = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAcceptsDelayedFocusGain(false)
+                    .build()
+                audioManager?.requestAudioFocus(focusReq)
+                audioFocusRequest = focusReq
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         try {
             val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            val defaultLocaleTag = Locale.getDefault().toLanguageTag()
+            val additionalLangs = if (defaultLocaleTag != "en-IN") {
+                arrayOf(defaultLocaleTag, "en-US", "en-GB")
+            } else {
+                arrayOf("en-US", "en-GB")
+            }
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-IN")
-                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-US", "en-GB"))
+                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", additionalLangs)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                // Extended listening window to prevent cutting off user prematurely
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 5000L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 800L)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                // Extended listening window to give user plenty of time to formulate words without being cut off
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 10000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 7000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                putExtra("android.speech.extra.DICTATION_MODE", true)
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak expense or income in English...")
             }
 
@@ -217,9 +277,8 @@ fun VoiceAiModal(
                 }
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {
-                    if (bufferedSpeechText.isNotBlank()) {
-                        modalState = VoiceModalState.PROCESSING
-                    }
+                    // Do not prematurely cut off on brief silence or breath pause;
+                    // Keep listening until either onResults is delivered or user taps manual Stop.
                 }
                 override fun onError(error: Int) {
                     // Resilient error handling: if speech was already buffered, recover it instead of dropping!
@@ -745,41 +804,42 @@ fun VoiceAiModal(
                         when (modalState) {
                             VoiceModalState.LISTENING -> {
                                 Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = CyanDarkSecondary.copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, CyanDarkSecondary.copy(alpha = 0.35f))
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = PastelRose.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, PastelRose.copy(alpha = 0.45f))
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(8.dp)
+                                                .size(10.dp)
+                                                .scale(pulseScale)
                                                 .clip(CircleShape)
-                                                .background(CyanDarkSecondary)
+                                                .background(PastelRose)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Active Listening • Extended pause window active",
+                                            text = "RECORDING ACTIVE • 10s Window",
                                             fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = CyanDarkSecondary
+                                            fontWeight = FontWeight.Bold,
+                                            color = PastelRose
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
 
-                                // Dynamic 9-bar reactive soundwave equalizer
+                                // Dynamic 11-bar reactive soundwave equalizer
                                 Row(
-                                    modifier = Modifier.height(26.dp),
+                                    modifier = Modifier.height(28.dp),
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    val multipliers = listOf(0.3f, 0.6f, 0.9f, 1.2f, 1.5f, 1.2f, 0.9f, 0.6f, 0.3f)
+                                    val multipliers = listOf(0.3f, 0.5f, 0.8f, 1.1f, 1.4f, 1.6f, 1.4f, 1.1f, 0.8f, 0.5f, 0.3f)
                                     multipliers.forEach { factor ->
-                                        val barHeight = (6.dp + (20.dp * liveAudioLevel * factor)).coerceIn(5.dp, 26.dp)
+                                        val barHeight = (6.dp + (22.dp * liveAudioLevel * factor)).coerceIn(5.dp, 28.dp)
                                         Box(
                                             modifier = Modifier
                                                 .width(4.dp)
@@ -787,7 +847,7 @@ fun VoiceAiModal(
                                                 .clip(CircleShape)
                                                 .background(
                                                     Brush.verticalGradient(
-                                                        listOf(CyanDarkSecondary, EmeraldDarkPrimary)
+                                                        listOf(PastelRose, CyanDarkSecondary)
                                                     )
                                                 )
                                         )
@@ -801,55 +861,62 @@ fun VoiceAiModal(
                                         shape = RoundedCornerShape(12.dp),
                                         color = SlateDarkSurfaceVariant,
                                         border = BorderStroke(1.dp, GlassBorderColor),
-                                        modifier = Modifier.fillMaxWidth(0.9f)
+                                        modifier = Modifier.fillMaxWidth(0.92f)
                                     ) {
                                         Text(
                                             text = "\"$speechPreview\"",
-                                            fontSize = 13.sp,
+                                            fontSize = 13.5.sp,
                                             color = Color.White,
                                             fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
 
-                                // Manual submission button while listening
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
+                                // Prominent dedicated Manual Stop Button
+                                Button(
+                                    onClick = {
+                                        val query = recognizedSpokenText.ifBlank { bufferedSpeechText }
+                                        if (query.isNotBlank()) {
+                                            handleProcessQuery(query)
+                                        } else {
                                             stopListeningSafely()
                                             modalState = VoiceModalState.IDLE
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(1.dp, GlassBorderColor),
-                                        modifier = Modifier.height(34.dp)
-                                    ) {
-                                        Text("Cancel", fontSize = 11.sp, color = SlateDarkTextSecondary)
-                                    }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = PastelRose),
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.85f)
+                                        .height(46.dp)
+                                        .testTag("btn_manual_stop_voice")
+                                ) {
+                                    Icon(
+                                        Icons.Default.Stop,
+                                        contentDescription = "Stop",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Stop & Process Expense",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = Color.White
+                                    )
+                                }
 
-                                    Button(
-                                        onClick = {
-                                            val query = recognizedSpokenText.ifBlank { bufferedSpeechText }
-                                            if (query.isNotBlank()) {
-                                                handleProcessQuery(query)
-                                            } else {
-                                                stopListeningSafely()
-                                                modalState = VoiceModalState.IDLE
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = CyanDarkSecondary),
-                                        modifier = Modifier.height(34.dp)
-                                    ) {
-                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Done Speaking ✓", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                TextButton(
+                                    onClick = {
+                                        stopListeningSafely()
+                                        modalState = VoiceModalState.IDLE
                                     }
+                                ) {
+                                    Text("Cancel listening", fontSize = 11.5.sp, color = SlateDarkTextSecondary)
                                 }
                             }
                             VoiceModalState.PROCESSING -> {
@@ -902,23 +969,38 @@ fun VoiceAiModal(
                                     border = BorderStroke(1.dp, ExpenseRed.copy(alpha = 0.4f)),
                                     modifier = Modifier.padding(horizontal = 8.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Icon(
-                                            Icons.Default.ErrorOutline,
-                                            contentDescription = null,
-                                            tint = ExpenseRed,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = errorMessage ?: "Could not hear clearly. Tap mic to retry.",
-                                            fontSize = 12.sp,
-                                            color = ExpenseRed,
-                                            fontWeight = FontWeight.Medium
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.ErrorOutline,
+                                                contentDescription = null,
+                                                tint = ExpenseRed,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = errorMessage ?: "Could not hear clearly. Tap mic to retry.",
+                                                fontSize = 12.sp,
+                                                color = ExpenseRed,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        OutlinedButton(
+                                            onClick = { startListening() },
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, ExpenseRed.copy(alpha = 0.6f)),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, tint = ExpenseRed, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Tap to Retry", fontSize = 11.5.sp, color = ExpenseRed, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }

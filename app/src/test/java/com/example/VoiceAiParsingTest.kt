@@ -248,4 +248,40 @@ class VoiceAiParsingTest {
         val url = "https://zenith.cashflow.app/family/join?code=FAM-7A9B3C"
         assertEquals("FAM-7A9B3C", com.example.data.familyledger.FamilyInviteCodeUtils.extractInviteCode(url))
     }
+
+    @Test
+    fun testVoiceExpense_SpokenEnglishNumberWords() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Two thousand for dinner with family")
+        assertEquals(2000.0, result.amount, 0.01)
+        assertEquals(com.example.data.models.FinanceScope.FAMILY, result.scope)
+        assertEquals("Dinner", result.title)
+        assertEquals("Food & Dining", result.category)
+    }
+
+    @Test
+    fun testVoiceExpense_SpokenEnglishTenThousand() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Paid ten thousand rent via bank transfer")
+        assertEquals(10000.0, result.amount, 0.01)
+        assertEquals("House Rent", result.title)
+        assertEquals("Housing & Rent", result.category)
+        assertEquals("Bank Transfer", result.paymentMethod)
+    }
+
+    @Test
+    fun testVoiceExpense_FamilyScopeWithRelatives() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Medicines for mother 750")
+        assertEquals(750.0, result.amount, 0.01)
+        assertEquals(com.example.data.models.FinanceScope.FAMILY, result.scope)
+        assertEquals("Medicines", result.title)
+        assertEquals("Healthcare", result.category)
+    }
+
+    @Test
+    fun testVoiceExpense_TanglishAmbathaayiram() {
+        val result = GeminiAiService.fallbackParseVoiceCommand("Office salary ambathaayiram vanthathu")
+        assertEquals(50000.0, result.amount, 0.01)
+        assertEquals(TransactionType.INCOME, result.type)
+        assertEquals("Monthly Salary", result.title)
+        assertEquals("Salary & Income", result.category)
+    }
 }

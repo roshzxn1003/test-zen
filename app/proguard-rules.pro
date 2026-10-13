@@ -1,21 +1,85 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# =========================================================================
+# Zenith CashFlow - Production ProGuard & R8 Optimization Rules
+# =========================================================================
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# --- General Optimization & Stack Trace Preservation ---
+-keepattributes SourceFile,LineNumberTable
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# --- AndroidX & Jetpack Compose ---
+-dontwarn androidx.**
+-keep class androidx.compose.** { *; }
+-keep class androidx.lifecycle.** { *; }
+-keep class androidx.navigation.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# --- Kotlin Coroutines ---
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-keepclassmembers class kotlinx.coroutines.** {
+    volatile <fields>;
+}
+
+# --- Kotlinx Serialization ---
+-dontnote kotlinx.serialization.SerializationKt
+-keepclassmembers class * {
+    @kotlinx.serialization.SerialName <fields>;
+}
+-keepclassmembers class **$$serializer {
+    *;
+}
+-keepclasseswithmembers class * {
+    @kotlinx.serialization.Serializable <fields>;
+}
+-keepclasseswithmembers class * {
+    @kotlinx.serialization.Serializable <init>(...);
+}
+
+# --- Supabase & Ktor Client ---
+-keep class io.github.jan.supabase.** { *; }
+-keep interface io.github.jan.supabase.** { *; }
+-keep class io.ktor.** { *; }
+-keep interface io.ktor.** { *; }
+-dontwarn io.ktor.**
+
+# --- Room Database ---
+-keep class * extends androidx.room.RoomDatabase
+-dontwarn androidx.room.paging.**
+-keepclassmembers class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+
+# --- Moshi & Retrofit ---
+-keepclasseswithmembers class * {
+    @com.squareup.moshi.* <methods>;
+}
+-keepclasseswithmembers class * {
+    @com.squareup.moshi.* <fields>;
+}
+-keepclasseswithmembers class * {
+    @com.squareup.moshi.* <init>(...);
+}
+-keepclassmembers class * {
+    @com.squareup.moshi.Json <fields>;
+}
+-dontwarn retrofit2.**
+-keep class retrofit2.** { *; }
+
+# --- Domain & Data Models (Preserve all fields for Room / JSON) ---
+-keep class com.example.data.models.** { *; }
+-keep class com.example.data.familyledger.** { *; }
+-keep class com.example.data.network.** { *; }
+-keep class com.example.data.ai.** { *; }
+-keep class com.example.data.upi.** { *; }
+
+# --- Google ML Kit & Code Scanner ---
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.vision.** { *; }
+-dontwarn com.google.mlkit.**
+
+# --- ZXing Barcode Library ---
+-keep class com.google.zxing.** { *; }
+-dontwarn com.google.zxing.**
+
+# --- CameraX ---
+-dontwarn androidx.camera.**
+-keep class androidx.camera.** { *; }

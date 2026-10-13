@@ -423,6 +423,8 @@ CREATE TRIGGER on_auth_user_created
 -- =============================================================================
 CREATE INDEX IF NOT EXISTS idx_transactions_family_date ON public.transactions (family_id, transaction_date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON public.transactions (user_id, transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_family_active ON public.transactions (family_id, transaction_date DESC) WHERE NOT is_deleted;
+CREATE INDEX IF NOT EXISTS idx_transactions_sync_version ON public.transactions (family_id, sync_version);
 CREATE INDEX IF NOT EXISTS idx_family_members_family ON public.family_members (family_id);
 CREATE INDEX IF NOT EXISTS idx_family_members_user ON public.family_members (user_id);
 CREATE INDEX IF NOT EXISTS idx_families_invite_code ON public.families (invite_code);
@@ -473,8 +475,29 @@ CREATE POLICY "transactions_select" ON public.transactions FOR SELECT TO anon, a
     )
 );
 CREATE POLICY "transactions_insert" ON public.transactions FOR INSERT TO anon, authenticated WITH CHECK (true);
-CREATE POLICY "transactions_update" ON public.transactions FOR UPDATE TO anon, authenticated USING (true);
-CREATE POLICY "transactions_delete" ON public.transactions FOR DELETE TO anon, authenticated USING (true);
+-- Defense-in-depth: only creator or Family Admin can edit/delete transactions
+CREATE POLICY "transactions_update" ON public.transactions FOR UPDATE TO anon, authenticated USING (
+    auth.role() = 'anon'
+    OR auth.uid() IS NULL
+    OR user_id = auth.uid()
+    OR EXISTS (
+        SELECT 1 FROM public.family_members fm
+        WHERE fm.family_id = transactions.family_id
+          AND fm.user_id = auth.uid()
+          AND upper(fm.role) = 'ADMIN'
+    )
+);
+CREATE POLICY "transactions_delete" ON public.transactions FOR DELETE TO anon, authenticated USING (
+    auth.role() = 'anon'
+    OR auth.uid() IS NULL
+    OR user_id = auth.uid()
+    OR EXISTS (
+        SELECT 1 FROM public.family_members fm
+        WHERE fm.family_id = transactions.family_id
+          AND fm.user_id = auth.uid()
+          AND upper(fm.role) = 'ADMIN'
+    )
+);
 
 -- 6.6 Budgets: Multi-Scope
 CREATE POLICY "budgets_access" ON public.budgets FOR ALL TO anon, authenticated USING (

@@ -67,7 +67,7 @@ fun ZenithFloatingNavigationBar(
     ) {
         Surface(
             shape = RoundedCornerShape(32.dp),
-            color = Color(0xF20B101D),
+            color = Color(0xFF0B101D).copy(alpha = 0.60f), // 40% transparency (60% opacity)
             border = BorderStroke(
                 1.dp,
                 Brush.linearGradient(
@@ -82,10 +82,10 @@ fun ZenithFloatingNavigationBar(
                 .fillMaxWidth()
                 .height(66.dp)
                 .shadow(
-                    elevation = 24.dp,
+                    elevation = 16.dp,
                     shape = RoundedCornerShape(32.dp),
-                    spotColor = Color(0xB3000000),
-                    ambientColor = Color(0x66000000)
+                    spotColor = Color(0x66000000),
+                    ambientColor = Color(0x33000000)
                 )
         ) {
             Row(

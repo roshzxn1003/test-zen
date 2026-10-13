@@ -30,6 +30,7 @@ import com.example.ui.theme.*
 fun FamilyLedgerTransactionsList(
     state: FamilyLedgerUiState,
     currencySymbol: String = "₹",
+    canModifyTransaction: (LedgerTransaction) -> Boolean = { true },
     onSearchChange: (String) -> Unit,
     onFilterTypeChange: (TransactionType?) -> Unit,
     onFilterCategoryChange: (String?) -> Unit,
@@ -263,6 +264,7 @@ fun FamilyLedgerTransactionsList(
                     ModernLedgerTransactionCard(
                         transaction = tx,
                         currencySymbol = currencySymbol,
+                        canModify = canModifyTransaction(tx),
                         onEdit = { onEditTransaction(tx) },
                         onDelete = { onDeleteTransaction(tx) }
                     )
