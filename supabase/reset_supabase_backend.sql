@@ -147,6 +147,7 @@ CREATE TABLE public.transactions (
     transaction_type VARCHAR(32) DEFAULT 'EXPENSE',
     category TEXT NOT NULL DEFAULT 'Other',
     category_id TEXT DEFAULT 'Other',
+    category_name TEXT DEFAULT 'Other',
     payment_method TEXT NOT NULL DEFAULT 'UPI',
     upi_id TEXT,
     upi_transaction_id TEXT,
@@ -269,14 +270,20 @@ BEGIN
         NEW.transaction_type := 'EXPENSE';
     END IF;
 
-    -- Safely sync category and category_id as TEXT without invalid UUID casts
+    -- Safely sync category, category_id, and category_name as TEXT without invalid UUID casts
     IF NEW.category IS NOT NULL AND trim(NEW.category) <> '' THEN
         NEW.category_id := NEW.category;
+        NEW.category_name := NEW.category;
     ELSIF NEW.category_id IS NOT NULL AND trim(NEW.category_id::text) <> '' THEN
         NEW.category := NEW.category_id::text;
+        NEW.category_name := NEW.category_id::text;
+    ELSIF NEW.category_name IS NOT NULL AND trim(NEW.category_name) <> '' THEN
+        NEW.category := NEW.category_name;
+        NEW.category_id := NEW.category_name;
     ELSE
         NEW.category := 'Other';
         NEW.category_id := 'Other';
+        NEW.category_name := 'Other';
     END IF;
 
     -- Ensure title and description are non-null
