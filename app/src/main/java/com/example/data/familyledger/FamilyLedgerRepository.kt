@@ -576,6 +576,9 @@ class FamilyLedgerRepository(
             }
             repositoryScope.launch {
                 cloudDataSource.upsertFamilyVault(existing)
+                for (m in members) {
+                    cloudDataSource.upsertFamilyMember(m)
+                }
             }
             return@withContext existing
         }

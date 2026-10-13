@@ -59,7 +59,8 @@ data class MemberContributionItem(
     val name: String,
     val totalPaid: Double,
     val totalIncome: Double = 0.0,
-    val shareDiff: Double // positive = paid more than fair share (is owed), negative = owes
+    val shareDiff: Double = 0.0, // preserved for backwards compatibility
+    val spendingPercentage: Float = 0f
 )
 
 data class FamilyLedgerSettlementSummary(
@@ -415,12 +416,14 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             val income = familyIncomes.filter {
                 it.createdByUserId == member.userId || it.createdByUserId == member.name
             }.sumOf { it.amount }
+            val spendingPct = if (familyTotalExpense > 0) (paid / familyTotalExpense).toFloat().coerceIn(0f, 1f) else 0f
             MemberContributionItem(
                 memberId = member.userId,
                 name = member.name,
                 totalPaid = paid,
                 totalIncome = income,
-                shareDiff = paid - fairShare
+                shareDiff = paid - fairShare,
+                spendingPercentage = spendingPct
             )
         }
 

@@ -757,138 +757,81 @@ fun HomeScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                            // 3-Metric Interlock: Personal | You Paid | Fair Share
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = SlateDarkSurface.copy(alpha = 0.7f),
-                                    border = BorderStroke(1.dp, GlassBorderColor),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                        Text("Personal", fontSize = 10.sp, color = SlateDarkTextSecondary, maxLines = 1)
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            "${state.currencySymbol}${String.format(Locale.US, "%,.0f", familySettlementSummary.personalTotalExpense)}",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = PastelIndigo,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = SlateDarkSurface.copy(alpha = 0.7f),
-                                    border = BorderStroke(1.dp, GlassBorderColor),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                        Text("You Paid", fontSize = 10.sp, color = SlateDarkTextSecondary, maxLines = 1)
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            "${state.currencySymbol}${String.format(Locale.US, "%,.0f", familySettlementSummary.userPaidForFamily)}",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = PastelCyan,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = SlateDarkSurface.copy(alpha = 0.7f),
-                                    border = BorderStroke(1.dp, GlassBorderColor),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                        Text("Fair Share", fontSize = 10.sp, color = SlateDarkTextSecondary, maxLines = 1)
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            "${state.currencySymbol}${String.format(Locale.US, "%,.0f", familySettlementSummary.fairSharePerMember)}",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFA5B4FC),
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // Settlement Standing Banner
-                            val netSettlement = familySettlementSummary.netSettlementBalance
-                            val isOwed = netSettlement > 0
-                            val isDeficit = netSettlement < 0
+                            // Family Group Savings & Health Indicator (Pure Shared Visibility - No Debt/Settlement)
+                            val famIncome = familySettlementSummary.familyTotalIncome
+                            val famExpense = familySettlementSummary.familyTotalExpense
+                            val savingsRate = if (famIncome > 0) {
+                                (((famIncome - famExpense) / famIncome) * 100).toInt().coerceAtLeast(0)
+                            } else 0
 
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
-                                color = when {
-                                    isOwed -> PastelGreenContainer.copy(alpha = 0.35f)
-                                    isDeficit -> PastelRoseContainer.copy(alpha = 0.35f)
-                                    else -> PastelCyanContainer.copy(alpha = 0.35f)
-                                },
-                                border = BorderStroke(
-                                    1.dp,
-                                    when {
-                                        isOwed -> PastelGreen.copy(alpha = 0.4f)
-                                        isDeficit -> PastelRose.copy(alpha = 0.4f)
-                                        else -> PastelCyan.copy(alpha = 0.4f)
-                                    }
-                                ),
+                                color = Color.White.copy(alpha = 0.06f),
+                                border = BorderStroke(1.dp, GlassBorderColor),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = when {
-                                                isOwed -> "You are owed by family members"
-                                                isDeficit -> "You owe the family vault"
-                                                else -> "All family shares are balanced"
-                                            },
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = when {
-                                                isOwed -> PastelGreen
-                                                isDeficit -> PastelRose
-                                                else -> PastelCyan
-                                            }
-                                        )
-                                        Text(
-                                            text = when {
-                                                isOwed -> "+${state.currencySymbol}${String.format(Locale.US, "%,.2f", netSettlement)}"
-                                                isDeficit -> "-${state.currencySymbol}${String.format(Locale.US, "%,.2f", Math.abs(netSettlement))}"
-                                                else -> "Settled Up"
-                                            },
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = Color.White
-                                        )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (famNet >= 0) EmeraldDarkPrimary.copy(alpha = 0.2f)
+                                                    else PastelRose.copy(alpha = 0.2f)
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = if (famNet >= 0) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
+                                                contentDescription = null,
+                                                tint = if (famNet >= 0) PastelGreen else PastelRose,
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = if (famIncome > 0) "Family Savings Rate" else "Group Cash Flow Status",
+                                                fontSize = 11.sp,
+                                                color = SlateDarkTextSecondary
+                                            )
+                                            Text(
+                                                text = if (famIncome > 0) {
+                                                    "$savingsRate% of family income saved"
+                                                } else if (famExpense > 0) {
+                                                    "Tracking ${familyMembers.size.coerceAtLeast(1)} members' spending"
+                                                } else {
+                                                    "Ready for group expenses and income"
+                                                },
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (famNet >= 0) PastelGreen else PastelRose
+                                            )
+                                        }
                                     }
 
-                                    if (isDeficit) {
-                                        Button(
-                                            onClick = onOpenUpiPay,
-                                            colors = ButtonDefaults.buttonColors(containerColor = PastelRose),
-                                            shape = RoundedCornerShape(10.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Settle UPI", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (famNet >= 0) EmeraldDarkPrimary.copy(alpha = 0.2f) else PastelRose.copy(alpha = 0.2f),
+                                        border = BorderStroke(1.dp, if (famNet >= 0) EmeraldDarkPrimary.copy(alpha = 0.4f) else PastelRose.copy(alpha = 0.4f))
+                                    ) {
+                                        Text(
+                                            text = if (famNet >= 0) "Surplus" else "Deficit",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (famNet >= 0) PastelGreen else PastelRose,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
                                     }
                                 }
                             }
@@ -968,7 +911,7 @@ fun HomeScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "MEMBER BALANCES & SHARES",
+                                    text = "FAMILY SPENDING BY MEMBER",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.sp,
@@ -1001,14 +944,14 @@ fun HomeScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 familyMembers.forEach { member ->
                                     val memberPaid = state.transactions
-                                        .filter { it.createdByUserId == member.userId && it.type == TransactionType.EXPENSE }
+                                        .filter { (it.createdByUserId == member.userId || it.createdByUserId == member.name) && it.type == TransactionType.EXPENSE }
                                         .sumOf { it.amount }
                                     val memberIncome = state.transactions
-                                        .filter { it.createdByUserId == member.userId && it.type == TransactionType.INCOME }
+                                        .filter { (it.createdByUserId == member.userId || it.createdByUserId == member.name) && it.type == TransactionType.INCOME }
                                         .sumOf { it.amount }
-                                    val diff = memberPaid - familySettlementSummary.fairSharePerMember
                                     val totalExp = familySettlementSummary.familyTotalExpense.coerceAtLeast(1.0)
                                     val progress = (memberPaid / totalExp).toFloat().coerceIn(0f, 1f)
+                                    val spendPercentage = (progress * 100).toInt()
 
                                     Column(
                                         modifier = Modifier
@@ -1062,7 +1005,7 @@ fun HomeScreen(
                                             Column(horizontalAlignment = Alignment.End) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Text(
-                                                        text = "Paid: ${state.currencySymbol}${String.format(Locale.US, "%,.0f", memberPaid)}",
+                                                        text = "Spent: ${state.currencySymbol}${String.format(Locale.US, "%,.0f", memberPaid)}",
                                                         fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = SlateDarkTextPrimary
@@ -1078,10 +1021,10 @@ fun HomeScreen(
                                                     }
                                                 }
                                                 Text(
-                                                    text = if (diff >= 0) "+${state.currencySymbol}${String.format(Locale.US, "%,.0f", diff)} (Owed)" else "-${state.currencySymbol}${String.format(Locale.US, "%,.0f", Math.abs(diff))} (Owes)",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = if (diff >= 0) PastelGreen else PastelRose
+                                                    text = if (familySettlementSummary.familyTotalExpense > 0) "$spendPercentage% of group spending" else "No expenses yet",
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = SlateDarkTextSecondary
                                                 )
                                             }
                                         }
@@ -1094,7 +1037,7 @@ fun HomeScreen(
                                                 .fillMaxWidth()
                                                 .height(5.dp)
                                                 .clip(RoundedCornerShape(3.dp)),
-                                            color = if (diff >= 0) PastelGreen else PastelCyan,
+                                            color = PastelCyan,
                                             trackColor = Color.White.copy(alpha = 0.08f)
                                         )
                                     }

@@ -57,7 +57,9 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
                                 try {
                                     val dto = json.decodeFromJsonElement<CloudLedgerTransactionDto>(record)
                                     val domainTx = mapDtoToDomain(dto)
-                                    trySend(RealtimeLedgerEvent(RealtimeEventType.INSERT, transaction = domainTx))
+                                    if (domainTx.familyId == familyId) {
+                                        trySend(RealtimeLedgerEvent(RealtimeEventType.INSERT, transaction = domainTx))
+                                    }
                                 } catch (e: Exception) {
                                     Log.w(tag, "Failed to decode realtime INSERT: ${e.message}")
                                 }
@@ -67,7 +69,9 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
                                 try {
                                     val dto = json.decodeFromJsonElement<CloudLedgerTransactionDto>(record)
                                     val domainTx = mapDtoToDomain(dto)
-                                    trySend(RealtimeLedgerEvent(RealtimeEventType.UPDATE, transaction = domainTx))
+                                    if (domainTx.familyId == familyId) {
+                                        trySend(RealtimeLedgerEvent(RealtimeEventType.UPDATE, transaction = domainTx))
+                                    }
                                 } catch (e: Exception) {
                                     Log.w(tag, "Failed to decode realtime UPDATE: ${e.message}")
                                 }

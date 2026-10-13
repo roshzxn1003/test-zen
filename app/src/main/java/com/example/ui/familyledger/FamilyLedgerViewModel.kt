@@ -47,7 +47,7 @@ data class FamilyLedgerUiState(
 
 class FamilyLedgerViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val prefs = application.getSharedPreferences("zenith_family_ledger", android.content.Context.MODE_PRIVATE)
+    private val prefs = application.getSharedPreferences("zenith_prefs", android.content.Context.MODE_PRIVATE)
     private val authService: AuthService = SupabaseAuthService()
 
     val repository: FamilyLedgerRepository

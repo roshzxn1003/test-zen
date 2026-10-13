@@ -278,99 +278,44 @@ fun FamilyMembersDialog(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
 
-                // --- ALTERNATIVE VAULT SYNC OPTIONS ---
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = SlateDarkSurfaceVariant.copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, GlassBorderColor),
-                    modifier = Modifier.fillMaxWidth()
+                // --- QUICK PAIR & CONNECT ---
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    // Show QR
+                    OutlinedButton(
+                        onClick = { showShowQrDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color(0xFF8B5CF6).copy(alpha = 0.08f)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp)
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFC4B5FD))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Show QR", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SlateDarkTextPrimary, maxLines = 1)
+                    }
+
+                    // Scan QR
+                    if (onJoinFamily != null) {
+                        Button(
+                            onClick = { showScanQrDialog = true },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier.weight(1f).height(42.dp)
                         ) {
-                            Text(
-                                text = "ALTERNATIVE VAULT SYNC",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFC4B5FD),
-                                letterSpacing = 0.8.sp
-                            )
-                            Text(
-                                text = "Offline & Direct",
-                                fontSize = 10.sp,
-                                color = SlateDarkTextMuted
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // Show QR
-                            OutlinedButton(
-                                onClick = { showShowQrDialog = true },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1f).height(34.dp)
-                            ) {
-                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFFC4B5FD))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("Show QR", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                            }
-
-                            // Scan QR
-                            if (onJoinFamily != null) {
-                                OutlinedButton(
-                                    onClick = { showScanQrDialog = true },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                                    modifier = Modifier.weight(1f).height(34.dp)
-                                ) {
-                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(13.dp), tint = EmeraldDarkPrimary)
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("Scan QR", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                }
-                            }
-
-                            // Share Vault File
-                            OutlinedButton(
-                                onClick = {
-                                    if (onExportVaultFile != null) {
-                                        onExportVaultFile()
-                                    } else {
-                                        shareInviteCode()
-                                    }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1.05f).height(34.dp)
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(13.dp), tint = GoldAccent)
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("Share File", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                            }
-
-                            // Import Vault File
-                            if (onImportVaultFile != null) {
-                                OutlinedButton(
-                                    onClick = { showImportFileDialog = true },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                                    modifier = Modifier.weight(1.05f).height(34.dp)
-                                ) {
-                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFF38BDF8))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("Import", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                }
-                            }
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Scan QR", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Member List
                 if (familyMembers.isEmpty()) {
