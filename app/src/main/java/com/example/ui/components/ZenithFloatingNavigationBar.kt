@@ -1,11 +1,15 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -17,7 +21,6 @@ import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -58,34 +61,46 @@ fun ZenithFloatingNavigationBar(
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
+    // Floating Capsule Container — completely transparent backdrop, zero solid bar backgrounds
     Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
-            shape = RoundedCornerShape(32.dp),
-            color = Color(0xFF0B101D).copy(alpha = 0.60f), // 40% transparency (60% opacity)
-            border = BorderStroke(
-                1.dp,
-                Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.24f),
-                        Color.White.copy(alpha = 0.08f),
-                        Color(0xFF818CF8).copy(alpha = 0.20f)
-                    )
-                )
-            ),
+        // Floating Frosted Glass Capsule
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(66.dp)
+                .height(64.dp)
                 .shadow(
-                    elevation = 16.dp,
+                    elevation = 20.dp,
                     shape = RoundedCornerShape(32.dp),
-                    spotColor = Color(0x66000000),
-                    ambientColor = Color(0x33000000)
+                    spotColor = Color(0x99000000),
+                    ambientColor = Color(0x40000000)
+                )
+                .clip(RoundedCornerShape(32.dp))
+                .background(
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color(0xEE101726), // Ultra-dense luxury obsidian navy
+                            Color(0xF6090D16)  // Midnight carbon floor
+                        )
+                    )
+                )
+                .border(
+                    BorderStroke(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.28f), // Crisp specular top light
+                                Color(0x33818CF8),              // Subtle electric indigo refraction
+                                Color.White.copy(alpha = 0.06f)  // Base reflection
+                            )
+                        )
+                    ),
+                    shape = RoundedCornerShape(32.dp)
                 )
         ) {
             Row(
@@ -100,18 +115,16 @@ fun ZenithFloatingNavigationBar(
                     val interactionSource = remember(index) { MutableInteractionSource() }
 
                     val animatedScale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.06f else 1.0f,
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                        targetValue = if (isSelected) 1.08f else 1.0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
                         label = "tab_scale"
                     )
 
-                    val activeBgColor by animateColorAsState(
-                        targetValue = if (isSelected) EmeraldDarkPrimary.copy(alpha = 0.20f) else Color.Transparent,
-                        label = "tab_bg"
-                    )
-
                     val activeContentColor by animateColorAsState(
-                        targetValue = if (isSelected) Color(0xFFA5B4FC) else SlateDarkTextSecondary,
+                        targetValue = if (isSelected) Color(0xFFE0E7FF) else SlateDarkTextSecondary,
                         label = "tab_content_color"
                     )
 
@@ -121,7 +134,26 @@ fun ZenithFloatingNavigationBar(
                             .fillMaxHeight()
                             .scale(animatedScale)
                             .clip(RoundedCornerShape(22.dp))
-                            .background(activeBgColor)
+                            .then(
+                                if (isSelected) {
+                                    Modifier
+                                        .background(
+                                            brush = Brush.verticalGradient(
+                                                listOf(
+                                                    Color(0xFF6366F1).copy(alpha = 0.26f),
+                                                    Color(0xFF4F46E5).copy(alpha = 0.12f)
+                                                )
+                                            )
+                                        )
+                                        .border(
+                                            1.dp,
+                                            Color(0xFF818CF8).copy(alpha = 0.40f),
+                                            RoundedCornerShape(22.dp)
+                                        )
+                                } else {
+                                    Modifier
+                                }
+                            )
                             .clickable(
                                 interactionSource = interactionSource,
                                 indication = ripple(bounded = true, radius = 28.dp)
@@ -140,7 +172,7 @@ fun ZenithFloatingNavigationBar(
                                 imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                                 contentDescription = tab.title,
                                 tint = activeContentColor,
-                                modifier = Modifier.size(21.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
@@ -150,6 +182,29 @@ fun ZenithFloatingNavigationBar(
                                 color = activeContentColor,
                                 maxLines = 1
                             )
+                            // Glowing micro-indicator bar under active tab
+                            AnimatedVisibility(
+                                visible = isSelected,
+                                enter = fadeIn(),
+                                exit = fadeOut()
+                            ) {
+                                Column {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 12.dp, height = 2.5.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(
+                                                brush = Brush.horizontalGradient(
+                                                    listOf(
+                                                        Color(0xFF818CF8),
+                                                        Color(0xFF38BDF8)
+                                                    )
+                                                )
+                                            )
+                                    )
+                                }
+                            }
                         }
                     }
                 }

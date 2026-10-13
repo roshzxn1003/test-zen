@@ -189,7 +189,7 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .background(brush = AmbientBackgroundBrush)
-                .padding(innerPadding)
+                .padding(top = innerPadding.calculateTopPadding())
         ) {
             AnimatedContent(
                 targetState = uiState.selectedTab,
