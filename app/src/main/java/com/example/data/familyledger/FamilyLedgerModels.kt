@@ -117,19 +117,19 @@ enum class FamilySyncStatus {
 @Serializable
 data class CloudLedgerTransactionDto(
     @SerialName("id") val id: String,
-    @SerialName("family_id") val familyId: String,
-    @SerialName("finance_scope") val financeScope: String = "FAMILY",
+    @SerialName("family_id") val familyId: String? = null,
+    @SerialName("finance_scope") val financeScope: String? = "FAMILY",
     /** Dedicated title column — short description of what the transaction was for. */
     @SerialName("title") val title: String? = null,
     /** Free-form notes / extended description. */
-    @SerialName("description") val description: String = "",
-    @SerialName("amount") val amount: Double,
-    @SerialName("transaction_type") val transactionType: String = "EXPENSE",
+    @SerialName("description") val description: String? = "",
+    @SerialName("amount") val amount: Double = 0.0,
+    @SerialName("transaction_type") val transactionType: String? = "EXPENSE",
     @SerialName("type") val type: String? = null,
     @SerialName("category") val category: String? = null,
     @SerialName("category_id") val categoryId: String? = null,
     @SerialName("category_name") val categoryName: String? = null,
-    @SerialName("payment_method") val paymentMethod: String = "UPI",
+    @SerialName("payment_method") val paymentMethod: String? = "UPI",
     /** The auth user ID who owns this record. Nullable if profile record does not yet exist. */
     @SerialName("user_id") val userId: String? = null,
     /** family_members.id of the person who physically paid — may differ from userId. */
@@ -138,7 +138,7 @@ data class CloudLedgerTransactionDto(
     @SerialName("paid_by_name") val paidByName: String? = null,
     /** Optimistic concurrency counter — incremented on each update. */
     @SerialName("sync_version") val syncVersion: Long = 1,
-    @SerialName("transaction_date") val transactionDate: String,
+    @SerialName("transaction_date") val transactionDate: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("is_deleted") val isDeleted: Boolean = false
@@ -151,7 +151,7 @@ data class CloudLedgerTransactionDto(
 @Serializable
 data class CloudFamilyVaultDto(
     @SerialName("id") val id: String,
-    @SerialName("name") val name: String,
+    @SerialName("name") val name: String = "Family Vault",
     @SerialName("invite_code") val inviteCode: String? = null,
     @SerialName("created_by") val createdBy: String? = null,
     @SerialName("description") val description: String? = null,

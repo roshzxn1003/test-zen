@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.GeminiAiService
@@ -185,9 +186,9 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     _isAuthenticated.value = true
                     _isGuestMode.value = false
                     userProfileRepository.syncProfile(user.id)
-                    // Reassign local records created as guest/offline and execute sync
+                    // Reassign local records created as guest/offline and execute cloud restoration
                     repository.reassignPersonalTransactionsToUser(user.id)
-                    executeSync()
+                    restoreAllCloudData(user.id)
                 }
             }
         }
@@ -644,6 +645,57 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    suspend fun clearLocalUserCache() = withContext(Dispatchers.IO) {
+        try {
+            val app: Application = getApplication()
+            val db = CashFlowDatabase.getDatabase(app)
+            db.transactionDao().deleteAllTransactions()
+            db.budgetDao().deleteAllBudgets()
+            db.savingsGoalDao().deleteAllGoals()
+            familyLedgerRepository.clearAllLocalFamilyData()
+            db.userProfileDao().deleteAllProfiles()
+            Log.d("CashFlowVM", "clearLocalUserCache: Local user data purged successfully.")
+        } catch (e: Exception) {
+            Log.w("CashFlowVM", "clearLocalUserCache failed: ${e.message}")
+        }
+    }
+
+    suspend fun restoreAllCloudData(userId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!SupabaseClientConfig.isConfigured || !syncEngine.isValidUuid(userId)) {
+            _syncUiState.value = SyncUiState.Success(System.currentTimeMillis())
+            return@withContext true
+        }
+        _syncUiState.value = SyncUiState.Syncing
+        var success = true
+        try {
+            // 1. Sync User Profile
+            userProfileRepository.syncProfile(userId)
+
+            // 2. Sync Personal Transactions, Budgets, Savings Goals
+            val personalSyncSuccess = syncEngine.syncAll(userId)
+            if (!personalSyncSuccess) success = false
+
+            // 3. Restore all Family Vaults, Members, and Family Transactions
+            val restoredFamilies = familyLedgerRepository.restoreAllFamiliesForUser(userId)
+            if (restoredFamilies.isNotEmpty()) {
+                val currentPref = prefs.getString("active_family_id", null)
+                val targetFamId = if (!currentPref.isNullOrBlank() && restoredFamilies.any { it.familyId == currentPref }) {
+                    currentPref
+                } else {
+                    restoredFamilies.first().familyId
+                }
+                setActiveFamily(targetFamId)
+            }
+
+            _syncUiState.value = SyncUiState.Success(System.currentTimeMillis())
+        } catch (e: Exception) {
+            Log.e("CashFlowVM", "restoreAllCloudData error: ${e.message}", e)
+            _syncUiState.value = SyncUiState.Error("Sync failed: ${e.message}")
+            success = false
+        }
+        success
+    }
+
     fun signIn(email: String, pass: String, onResult: (AuthResult) -> Unit) {
         viewModelScope.launch {
             val result = authService.signIn(email, pass)
@@ -653,11 +705,20 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     ?: user?.email?.substringBefore("@")
                     ?: email.substringBefore("@")
                 val userId = user?.id
+
+                val previousUserId = prefs.getString("last_authenticated_user_id", null)
+                if (previousUserId != null && userId != null && previousUserId != userId) {
+                    clearLocalUserCache()
+                }
+                if (userId != null) {
+                    prefs.edit().putString("last_authenticated_user_id", userId).apply()
+                }
+
                 setAuthenticatedUser(email, cleanName, userId = userId, isGuest = false)
 
                 if (userId != null && syncEngine.isValidUuid(userId)) {
                     repository.reassignPersonalTransactionsToUser(userId)
-                    executeSync()
+                    restoreAllCloudData(userId)
                 }
             }
             onResult(result)
@@ -671,11 +732,20 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 val user = result.user ?: authService.currentUser.value
                 val cleanName = user?.fullName?.ifBlank { null } ?: name.ifBlank { email.substringBefore("@") }
                 val userId = user?.id
+
+                val previousUserId = prefs.getString("last_authenticated_user_id", null)
+                if (previousUserId != null && userId != null && previousUserId != userId) {
+                    clearLocalUserCache()
+                }
+                if (userId != null) {
+                    prefs.edit().putString("last_authenticated_user_id", userId).apply()
+                }
+
                 setAuthenticatedUser(email, cleanName, userId = userId, isGuest = false)
 
                 if (userId != null && syncEngine.isValidUuid(userId)) {
                     repository.reassignPersonalTransactionsToUser(userId)
-                    executeSync()
+                    restoreAllCloudData(userId)
                 }
             }
             onResult(result)
@@ -702,19 +772,28 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 .remove("user_email")
                 .remove("user_name")
                 .remove("user_supabase_id")
+                .remove("active_family_id")
+                .remove("last_authenticated_user_id")
                 .apply()
             _isAuthenticated.value = false
             _isGuestMode.value = false
             _activeUserEmail.value = null
             _activeUserName.value = null
             _userSupabaseId.value = null
+            _activeFamilyId.value = ""
             _syncUiState.value = SyncUiState.Idle
+            clearLocalUserCache()
         }
     }
 
     fun syncNow(onComplete: ((Boolean) -> Unit)? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            val success = executeSync()
+            val userId = authService.currentUser.value?.id ?: _userSupabaseId.value
+            val success = if (!userId.isNullOrBlank() && syncEngine.isValidUuid(userId)) {
+                restoreAllCloudData(userId)
+            } else {
+                executeSync()
+            }
             withContext(Dispatchers.Main) {
                 onComplete?.invoke(success)
             }
@@ -731,14 +810,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             _syncUiState.value = SyncUiState.Error("Please sign in with a Zenith account to sync.")
             return@withContext false
         }
-        _syncUiState.value = SyncUiState.Syncing
-        val success = syncEngine.syncAll(userId)
-        if (success) {
-            _syncUiState.value = SyncUiState.Success(System.currentTimeMillis())
-        } else {
-            _syncUiState.value = SyncUiState.Error("Cloud sync failed. Check your network connection.")
-        }
-        success
+        return@withContext restoreAllCloudData(userId)
     }
 
     fun addTransaction(

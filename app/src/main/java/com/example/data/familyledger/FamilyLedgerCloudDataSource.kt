@@ -19,6 +19,7 @@ interface FamilyLedgerCloudDataSource {
     suspend fun upsertTransaction(tx: LedgerTransaction): Boolean
     suspend fun softDeleteTransaction(transactionId: String): Boolean
     suspend fun fetchFamilyByInviteCode(inviteCode: String): FamilyVault?
+    suspend fun fetchFamiliesForUser(userId: String): List<FamilyVault>
 }
 
 /**
@@ -36,4 +37,5 @@ class NoOpFamilyLedgerCloudDataSource : FamilyLedgerCloudDataSource {
     override suspend fun upsertTransaction(tx: LedgerTransaction): Boolean = false
     override suspend fun softDeleteTransaction(transactionId: String): Boolean = false
     override suspend fun fetchFamilyByInviteCode(inviteCode: String): FamilyVault? = null
+    override suspend fun fetchFamiliesForUser(userId: String): List<FamilyVault> = emptyList()
 }

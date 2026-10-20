@@ -558,6 +558,49 @@ class FamilyLedgerRepository(
     }
 
     /**
+     * Completely restores all families, members, and family transactions for the specified user from cloud backend.
+     * Inserts/Upserts into both Family Ledger tables and legacy Room DAO mirrors.
+     */
+    suspend fun restoreAllFamiliesForUser(userId: String): List<FamilyVault> = withContext(Dispatchers.IO) {
+        if (!cloudDataSource.isAvailable || userId.isBlank() || !isValidUuid(userId)) return@withContext emptyList()
+        Log.d(tag, "RESTORE_FAMILIES: Beginning cloud restoration for user $userId")
+        val remoteVaults = cloudDataSource.fetchFamiliesForUser(userId)
+        val restoredVaults = mutableListOf<FamilyVault>()
+
+        for (vault in remoteVaults) {
+            try {
+                // A. Upsert Vault
+                ledgerDao.upsertFamilyVault(vault)
+                mirrorVaultToLegacy(vault)
+                restoredVaults.add(vault)
+
+                // B. Fetch & Upsert all members
+                val members = cloudDataSource.fetchFamilyMembers(vault.familyId)
+                for (member in members) {
+                    ledgerDao.upsertMember(member)
+                    mirrorMemberToLegacy(member)
+                }
+
+                // C. Fetch & Upsert all family transactions
+                val transactions = cloudDataSource.fetchFamilyTransactions(vault.familyId)
+                for (tx in transactions) {
+                    if (tx.isDeleted) {
+                        ledgerDao.deleteTransactionPermanently(tx.transactionId)
+                        mirrorDeleteToLegacy(tx.transactionId)
+                    } else {
+                        ledgerDao.upsertTransaction(tx)
+                        mirrorTransactionToLegacy(tx)
+                    }
+                }
+                Log.d(tag, "RESTORE_FAMILIES: Successfully restored vault ${vault.familyId} (${vault.familyName}) with ${members.size} members and ${transactions.size} transactions")
+            } catch (e: Exception) {
+                Log.e(tag, "RESTORE_FAMILIES: Error restoring family ${vault.familyId}: ${e.message}", e)
+            }
+        }
+        restoredVaults
+    }
+
+    /**
      * Returns the first valid existing vault or creates a default one.
      * Called once on ViewModel init.
      */
@@ -565,7 +608,7 @@ class FamilyLedgerRepository(
         currentUserId: String,
         currentUserName: String
     ): FamilyVault = withContext(Dispatchers.IO) {
-        // If there's already a valid vault in Room, return it and ensure it's mirrored & pushed
+        // 1. If there's already a valid vault in Room, return it and ensure it's mirrored & pushed
         val existing = ledgerDao.getAllFamilyVaultsOnce()
             .firstOrNull { !it.isDeleted && isValidUuid(it.familyId) }
         if (existing != null) {
@@ -583,7 +626,17 @@ class FamilyLedgerRepository(
             return@withContext existing
         }
 
-        // Create a fresh default vault
+        // 2. If Room is empty but user is authenticated, attempt cloud recovery first!
+        if (cloudDataSource.isAvailable && currentUserId.isNotBlank() && isValidUuid(currentUserId)) {
+            val restored = restoreAllFamiliesForUser(currentUserId)
+            if (restored.isNotEmpty()) {
+                val firstVault = restored.first()
+                Log.d(tag, "getOrCreateDefaultVault: Restored existing vault from cloud: ${firstVault.familyId}")
+                return@withContext firstVault
+            }
+        }
+
+        // 3. Create a fresh default vault only if neither local nor cloud has a vault
         createFamilyVault(
             familyName = if (currentUserName.isNotBlank() && currentUserName != "You")
                 "$currentUserName's Family Vault" else "My Family Vault",
@@ -978,7 +1031,7 @@ class FamilyLedgerRepository(
         legacyMemberDao.deleteAllFamilyMembers()
     }
 
-    private fun isValidUuid(str: String): Boolean = try {
+    private fun isValidUuid(str: String?): Boolean = if (str.isNullOrBlank()) false else try {
         UUID.fromString(str); true
     } catch (e: Exception) { false }
 }

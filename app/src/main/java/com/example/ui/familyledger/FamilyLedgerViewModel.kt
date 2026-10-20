@@ -95,6 +95,15 @@ class FamilyLedgerViewModel(application: Application) : AndroidViewModel(applica
     private val _isSavingTransaction = MutableStateFlow(false)
     private val _transactionSaveResult = MutableStateFlow<String?>(null)
 
+    private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sp, key ->
+        if (key == "active_family_id") {
+            val newFamId = sp.getString("active_family_id", "") ?: ""
+            if (newFamId.isNotBlank() && isValidUuid(newFamId) && newFamId != _activeFamilyId.value) {
+                _activeFamilyId.value = newFamId
+            }
+        }
+    }
+
     // =========================================================================
     // INIT
     // =========================================================================
@@ -107,6 +116,8 @@ class FamilyLedgerViewModel(application: Application) : AndroidViewModel(applica
             legacyFamilyDao = db.familyDao(),
             legacyMemberDao = db.familyMemberDao()
         )
+
+        prefs.registerOnSharedPreferenceChangeListener(prefListener)
 
         // Resolve / create default vault, then start sync
         viewModelScope.launch {
@@ -428,10 +439,18 @@ class FamilyLedgerViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    /** Triggers an immediate full reconciliation sync for the active family. */
+    /** Triggers an immediate full reconciliation sync for the active family or restores families if unlinked. */
     fun syncNow() {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.syncWithCloud(_activeFamilyId.value, currentUserId)
+            val currentFam = _activeFamilyId.value
+            if (currentFam.isNotBlank() && isValidUuid(currentFam)) {
+                repository.syncWithCloud(currentFam, currentUserId)
+            } else if (isValidUuid(currentUserId)) {
+                val restored = repository.restoreAllFamiliesForUser(currentUserId)
+                if (restored.isNotEmpty()) {
+                    setActiveFamily(restored.first().familyId)
+                }
+            }
         }
     }
 
@@ -445,6 +464,11 @@ class FamilyLedgerViewModel(application: Application) : AndroidViewModel(applica
 
     override fun onCleared() {
         super.onCleared()
+        try {
+            prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
+        } catch (e: Exception) {
+            // ignore
+        }
         repository.stopSync()
     }
 }

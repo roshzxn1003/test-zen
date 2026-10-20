@@ -36,8 +36,8 @@ class UserProfileRepository(private val userProfileDao: UserProfileDao) {
             if (remote != null) {
                 val entity = UserProfileEntity(
                     id = remote.id,
-                    fullName = remote.fullName,
-                    email = remote.email,
+                    fullName = remote.fullName ?: "",
+                    email = remote.email ?: "",
                     avatarUrl = remote.avatarUrl,
                     serverId = remote.id,
                     syncStatus = "SYNCED",

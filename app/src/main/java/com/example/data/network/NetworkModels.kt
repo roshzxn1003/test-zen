@@ -6,8 +6,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ProfileDto(
     val id: String,
-    @SerialName("full_name") val fullName: String,
-    val email: String,
+    @SerialName("full_name") val fullName: String? = "",
+    val email: String? = "",
     @SerialName("avatar_url") val avatarUrl: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
@@ -16,8 +16,8 @@ data class ProfileDto(
 @Serializable
 data class FamilyDto(
     val id: String,
-    val name: String,
-    @SerialName("created_by") val createdBy: String,
+    val name: String = "Family Vault",
+    @SerialName("created_by") val createdBy: String? = null,
     @SerialName("invite_code") val inviteCode: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
@@ -27,9 +27,9 @@ data class FamilyDto(
 data class FamilyMemberDto(
     val id: String,
     @SerialName("family_id") val familyId: String,
-    @SerialName("user_id") val userId: String,
+    @SerialName("user_id") val userId: String? = null,
     val name: String? = null,
-    val role: String,
+    val role: String = "MEMBER",
     @SerialName("joined_at") val joinedAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
 )
@@ -37,9 +37,9 @@ data class FamilyMemberDto(
 @Serializable
 data class CategoryDto(
     val id: String,
-    val name: String,
-    val icon: String,
-    val color: String,
+    val name: String = "Other",
+    val icon: String? = "Category",
+    val color: String? = "#10B981",
     @SerialName("user_id") val userId: String? = null,
     @SerialName("family_id") val familyId: String? = null,
     @SerialName("is_default") val isDefault: Boolean = false,
@@ -50,20 +50,20 @@ data class CategoryDto(
 @Serializable
 data class TransactionDto(
     val id: String,
-    @SerialName("user_id") val userId: String,
+    @SerialName("user_id") val userId: String? = null,
     @SerialName("family_id") val familyId: String? = null,
-    @SerialName("finance_scope") val financeScope: String = "PERSONAL",
-    val amount: Double,
+    @SerialName("finance_scope") val financeScope: String? = "PERSONAL",
+    val amount: Double = 0.0,
     @SerialName("title") val title: String? = null,
-    @SerialName("transaction_type") val transactionType: String = "EXPENSE",
+    @SerialName("transaction_type") val transactionType: String? = "EXPENSE",
     @SerialName("type") val type: String? = null,
     @SerialName("category_id") val categoryId: String? = null,
     @SerialName("category") val category: String? = null,
-    val description: String = "",
-    @SerialName("payment_method") val paymentMethod: String = "UPI",
+    val description: String? = "",
+    @SerialName("payment_method") val paymentMethod: String? = "UPI",
     @SerialName("upi_id") val upiId: String? = null,
     @SerialName("upi_transaction_id") val upiTransactionId: String? = null,
-    @SerialName("transaction_date") val transactionDate: String,
+    @SerialName("transaction_date") val transactionDate: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("is_deleted") val isDeleted: Boolean = false
@@ -72,16 +72,16 @@ data class TransactionDto(
 @Serializable
 data class BudgetDto(
     val id: String,
-    @SerialName("user_id") val userId: String,
+    @SerialName("user_id") val userId: String? = null,
     @SerialName("family_id") val familyId: String? = null,
-    @SerialName("finance_scope") val financeScope: String = "PERSONAL",
-    val name: String = "Budget",
+    @SerialName("finance_scope") val financeScope: String? = "PERSONAL",
+    val name: String? = "Budget",
     @SerialName("category_name") val categoryName: String? = null,
     @SerialName("category_id") val categoryId: String? = null,
     val amount: Double = 0.0,
     @SerialName("monthly_limit") val monthlyLimit: Double? = null,
     @SerialName("month_year") val monthYear: String? = null,
-    @SerialName("period_type") val periodType: String = "MONTHLY",
+    @SerialName("period_type") val periodType: String? = "MONTHLY",
     @SerialName("start_date") val startDate: String? = null,
     @SerialName("end_date") val endDate: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
@@ -92,13 +92,13 @@ data class BudgetDto(
 @Serializable
 data class SavingsGoalDto(
     val id: String,
-    @SerialName("user_id") val userId: String,
+    @SerialName("user_id") val userId: String? = null,
     @SerialName("family_id") val familyId: String? = null,
-    @SerialName("finance_scope") val financeScope: String = "PERSONAL",
-    val name: String = "Goal",
+    @SerialName("finance_scope") val financeScope: String? = "PERSONAL",
+    val name: String? = "Goal",
     @SerialName("title") val title: String? = null,
-    @SerialName("target_amount") val targetAmount: Double,
-    @SerialName("current_amount") val currentAmount: Double = 0.0,
+    val targetAmount: Double = 0.0,
+    val currentAmount: Double = 0.0,
     @SerialName("target_date") val targetDate: String? = null,
     @SerialName("icon_name") val iconName: String? = null,
     @SerialName("color_hex") val colorHex: String? = null,

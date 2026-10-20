@@ -186,13 +186,15 @@ class SyncEngine(
             val remoteTxs = SupabaseClientConfig.supabase.postgrest["transactions"]
                 .select {
                     filter {
-                        eq("finance_scope", "PERSONAL")
                         eq("user_id", userId)
                     }
                 }
                 .decodeList<TransactionDto>()
 
             for (dto in remoteTxs) {
+                val isFamily = dto.financeScope?.equals("FAMILY", ignoreCase = true) == true && !dto.familyId.isNullOrBlank()
+                if (isFamily) continue
+
                 val existing = transactionDao.getTransactionByServerId(dto.id)
                 if (dto.isDeleted) {
                     if (existing != null) {
@@ -202,11 +204,12 @@ class SyncEngine(
                     val txDateMillis = parseIsoTimestamp(dto.transactionDate)
                     val txUpdatedMillis = parseIsoTimestamp(dto.updatedAt ?: dto.createdAt)
                     val txTitle = dto.title?.takeIf { it.isNotBlank() }
-                        ?: dto.description.takeIf { it.isNotBlank() }
+                        ?: dto.description?.takeIf { it.isNotBlank() }
                         ?: "Transaction"
                     val txCategory = dto.category ?: dto.categoryId ?: "General"
                     val txType = try {
-                        TransactionType.valueOf(dto.transactionType.ifBlank { dto.type ?: "EXPENSE" })
+                        val typeStr = (dto.transactionType ?: dto.type ?: "EXPENSE").uppercase()
+                        TransactionType.valueOf(typeStr)
                     } catch (e: Exception) {
                         TransactionType.EXPENSE
                     }
@@ -217,8 +220,8 @@ class SyncEngine(
                             amount = dto.amount,
                             type = txType,
                             category = txCategory,
-                            note = dto.description,
-                            paymentMethod = dto.paymentMethod,
+                            note = dto.description ?: "",
+                            paymentMethod = dto.paymentMethod ?: "UPI",
                             dateMillis = txDateMillis,
                             upiId = dto.upiId,
                             upiTransactionId = dto.upiTransactionId,
@@ -237,8 +240,8 @@ class SyncEngine(
                             amount = dto.amount,
                             type = txType,
                             category = txCategory,
-                            note = dto.description,
-                            paymentMethod = dto.paymentMethod,
+                            note = dto.description ?: "",
+                            paymentMethod = dto.paymentMethod ?: existing.paymentMethod,
                             dateMillis = txDateMillis,
                             upiId = dto.upiId,
                             upiTransactionId = dto.upiTransactionId,
@@ -379,11 +382,12 @@ class SyncEngine(
                     val txDateMillis = parseIsoTimestamp(dto.transactionDate)
                     val txUpdatedMillis = parseIsoTimestamp(dto.updatedAt ?: dto.createdAt)
                     val txTitle = dto.title?.takeIf { it.isNotBlank() }
-                        ?: dto.description.takeIf { it.isNotBlank() }
+                        ?: dto.description?.takeIf { it.isNotBlank() }
                         ?: "Family Transaction"
                     val txCategory = dto.category ?: dto.categoryId ?: "General"
                     val txType = try {
-                        TransactionType.valueOf(dto.transactionType.ifBlank { dto.type ?: "EXPENSE" })
+                        val typeStr = (dto.transactionType ?: dto.type ?: "EXPENSE").uppercase()
+                        TransactionType.valueOf(typeStr)
                     } catch (e: Exception) {
                         TransactionType.EXPENSE
                     }
@@ -394,14 +398,14 @@ class SyncEngine(
                             amount = dto.amount,
                             type = txType,
                             category = txCategory,
-                            note = dto.description,
-                            paymentMethod = dto.paymentMethod,
+                            note = dto.description ?: "",
+                            paymentMethod = dto.paymentMethod ?: "UPI",
                             dateMillis = txDateMillis,
                             upiId = dto.upiId,
                             upiTransactionId = dto.upiTransactionId,
                             financeScope = FinanceScope.FAMILY,
                             familyId = familyId,
-                            createdByUserId = dto.userId,
+                            createdByUserId = dto.userId ?: userId,
                             serverId = dto.id,
                             syncStatus = "SYNCED",
                             updatedAt = txUpdatedMillis,
@@ -414,8 +418,8 @@ class SyncEngine(
                             amount = dto.amount,
                             type = txType,
                             category = txCategory,
-                            note = dto.description,
-                            paymentMethod = dto.paymentMethod,
+                            note = dto.description ?: "",
+                            paymentMethod = dto.paymentMethod ?: existing.paymentMethod,
                             dateMillis = txDateMillis,
                             upiId = dto.upiId,
                             upiTransactionId = dto.upiTransactionId,
@@ -526,19 +530,19 @@ class SyncEngine(
             val remoteBudgets = SupabaseClientConfig.supabase.postgrest["budgets"]
                 .select {
                     filter {
-                        eq("finance_scope", "PERSONAL")
                         eq("user_id", userId)
                     }
                 }
                 .decodeList<BudgetDto>()
 
             for (dto in remoteBudgets) {
+                if (dto.financeScope?.equals("FAMILY", ignoreCase = true) == true && !dto.familyId.isNullOrBlank()) continue
                 val existing = bDao.getBudgetByServerId(dto.id)
                 if (dto.isDeleted) {
                     if (existing != null) bDao.deleteBudget(existing)
                 } else {
                     val limit = if (dto.amount > 0) dto.amount else (dto.monthlyLimit ?: 0.0)
-                    val catName = dto.categoryName ?: dto.categoryId ?: dto.name
+                    val catName = dto.categoryName ?: dto.categoryId ?: dto.name ?: "Other"
                     val mYear = dto.monthYear ?: "2026-07"
                     val updatedMillis = parseIsoTimestamp(dto.updatedAt ?: dto.createdAt)
 
@@ -547,7 +551,7 @@ class SyncEngine(
                             categoryName = catName,
                             monthlyLimit = limit,
                             monthYear = mYear,
-                            periodType = dto.periodType,
+                            periodType = dto.periodType ?: "MONTHLY",
                             financeScope = FinanceScope.PERSONAL,
                             familyId = null,
                             serverId = dto.id,
@@ -561,7 +565,7 @@ class SyncEngine(
                             categoryName = catName,
                             monthlyLimit = limit,
                             monthYear = mYear,
-                            periodType = dto.periodType,
+                            periodType = dto.periodType ?: existing.periodType,
                             syncStatus = "SYNCED",
                             updatedAt = updatedMillis
                         )
@@ -668,18 +672,18 @@ class SyncEngine(
             val remoteGoals = SupabaseClientConfig.supabase.postgrest["savings_goals"]
                 .select {
                     filter {
-                        eq("finance_scope", "PERSONAL")
                         eq("user_id", userId)
                     }
                 }
                 .decodeList<SavingsGoalDto>()
 
             for (dto in remoteGoals) {
+                if (dto.financeScope?.equals("FAMILY", ignoreCase = true) == true && !dto.familyId.isNullOrBlank()) continue
                 val existing = sDao.getGoalByServerId(dto.id)
                 if (dto.isDeleted) {
                     if (existing != null) sDao.deleteGoal(existing)
                 } else {
-                    val goalTitle = dto.title ?: dto.name
+                    val goalTitle = dto.title ?: dto.name ?: "Goal"
                     val targetDate = dto.targetDate?.let { parseIsoTimestamp(it) } ?: (System.currentTimeMillis() + 30L * 86400000)
                     val updatedMillis = parseIsoTimestamp(dto.updatedAt ?: dto.createdAt)
 

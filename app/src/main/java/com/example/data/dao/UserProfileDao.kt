@@ -20,4 +20,7 @@ interface UserProfileDao {
     
     @Query("UPDATE user_profiles SET fullName = :fullName, avatarUrl = :avatarUrl, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateProfile(id: String, fullName: String, avatarUrl: String?, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM user_profiles")
+    suspend fun deleteAllProfiles()
 }

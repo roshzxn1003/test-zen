@@ -545,7 +545,7 @@ fun AuthScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (isSignUp) "Creating account..." else "Authenticating...",
+                            text = if (isSignUp) "Creating account..." else "Restoring vault...",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )

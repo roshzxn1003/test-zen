@@ -251,6 +251,62 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
         }
     }
 
+    override suspend fun fetchFamiliesForUser(userId: String): List<FamilyVault> = withContext(Dispatchers.IO) {
+        if (!isAvailable || userId.isBlank() || !isValidUuid(userId)) return@withContext emptyList()
+        val familyIds = mutableSetOf<String>()
+        try {
+            // 1. Query families where user is an active member
+            val memberships = SupabaseClientConfig.supabase.postgrest["family_members"]
+                .select(columns = Columns.ALL) {
+                    filter {
+                        eq("user_id", userId)
+                        eq("is_active", true)
+                    }
+                }
+                .decodeList<CloudFamilyMemberDto>()
+            memberships.forEach { m ->
+                if (isValidUuid(m.familyId)) {
+                    familyIds.add(m.familyId)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to fetch family memberships for user: ${e.message}")
+        }
+
+        try {
+            // 2. Query families where user is the creator
+            val createdFamilies = SupabaseClientConfig.supabase.postgrest["families"]
+                .select(columns = Columns.ALL) {
+                    filter {
+                        eq("created_by", userId)
+                        eq("is_deleted", false)
+                    }
+                }
+                .decodeList<CloudFamilyVaultDto>()
+            createdFamilies.forEach { f ->
+                if (isValidUuid(f.id)) {
+                    familyIds.add(f.id)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to fetch created families for user: ${e.message}")
+        }
+
+        // 3. For each familyId, fetch full vault record
+        val vaults = mutableListOf<FamilyVault>()
+        for (fId in familyIds) {
+            try {
+                val vault = fetchFamilyVault(fId)
+                if (vault != null) {
+                    vaults.add(vault)
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to fetch vault $fId: ${e.message}")
+            }
+        }
+        vaults
+    }
+
     override suspend fun fetchFamilyMembers(familyId: String): List<FamilyVaultMember> = withContext(Dispatchers.IO) {
         if (!isAvailable) return@withContext emptyList()
         try {
@@ -432,29 +488,26 @@ class SupabaseFamilyLedgerDataSource : FamilyLedgerCloudDataSource {
 
     private fun mapDtoToDomain(dto: CloudLedgerTransactionDto): LedgerTransaction {
         val effectiveType = try {
-            TransactionType.valueOf(dto.transactionType.ifBlank { dto.type ?: "EXPENSE" })
+            val typeStr = (dto.transactionType ?: dto.type ?: "EXPENSE").uppercase()
+            TransactionType.valueOf(typeStr)
         } catch (e: Exception) {
-            try {
-                TransactionType.valueOf(dto.type ?: "EXPENSE")
-            } catch (e2: Exception) {
-                TransactionType.EXPENSE
-            }
+            TransactionType.EXPENSE
         }
         val effectiveCategory = dto.category ?: dto.categoryName ?: dto.categoryId ?: "General"
         val effectiveTitle = dto.title?.takeIf { it.isNotBlank() }
-            ?: dto.description.takeIf { it.isNotBlank() }
+            ?: dto.description?.takeIf { it.isNotBlank() }
             ?: "Transaction"
 
         return LedgerTransaction(
             transactionId = dto.id,
-            familyId = dto.familyId,
+            familyId = dto.familyId ?: "",
             title = effectiveTitle,
-            description = dto.description,
+            description = dto.description ?: "",
             amount = dto.amount,
             category = effectiveCategory,
             categoryIcon = getIconForCategory(effectiveCategory),
             type = effectiveType,
-            paymentMethod = dto.paymentMethod,
+            paymentMethod = dto.paymentMethod ?: "UPI",
             paidByMemberId = dto.paidByMemberId ?: "",
             paidByName = dto.paidByName ?: "Member",
             dateMillis = parseIsoTimestamp(dto.transactionDate),

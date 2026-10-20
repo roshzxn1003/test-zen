@@ -351,4 +351,98 @@ class FamilyLedgerRedesignTest {
         assertEquals(999.0, dto.amount, 0.001)
         assertEquals("Shared WiFi", dto.title)
     }
+
+    @Test
+    fun testCloudRestorationOnNewDevice() = runBlocking {
+        val testUserId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        val testFamilyId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+        val remoteVault = FamilyVault(
+            familyId = testFamilyId,
+            familyName = "The Incredibles Vault",
+            inviteCode = "FAM-INCRED",
+            createdBy = testUserId
+        )
+        val remoteMember = FamilyVaultMember(
+            memberId = "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            familyId = testFamilyId,
+            userId = testUserId,
+            name = "Bob Parr",
+            role = FamilyRole.ADMIN
+        )
+        val remoteTx = LedgerTransaction(
+            transactionId = "dddddddd-dddd-dddd-dddd-dddddddddddd",
+            familyId = testFamilyId,
+            title = "Super Suits Maintenance",
+            amount = 4500.0,
+            category = "Bills & Utilities",
+            type = TransactionType.EXPENSE,
+            paidByMemberId = remoteMember.memberId,
+            paidByName = "Bob Parr",
+            createdBy = testUserId
+        )
+
+        val fakeCloud = object : FamilyLedgerCloudDataSource {
+            override val isAvailable: Boolean = true
+            override fun observeRealtimeTransactions(familyId: String) = kotlinx.coroutines.flow.emptyFlow<RealtimeLedgerEvent>()
+            override suspend fun fetchFamilyVault(familyId: String) = if (familyId == testFamilyId) remoteVault else null
+            override suspend fun fetchFamilyMembers(familyId: String) = if (familyId == testFamilyId) listOf(remoteMember) else emptyList()
+            override suspend fun fetchFamilyTransactions(familyId: String) = if (familyId == testFamilyId) listOf(remoteTx) else emptyList()
+            override suspend fun upsertFamilyVault(vault: FamilyVault) = true
+            override suspend fun upsertFamilyMember(member: FamilyVaultMember) = true
+            override suspend fun deleteFamilyMember(memberId: String) = true
+            override suspend fun upsertTransaction(tx: LedgerTransaction) = true
+            override suspend fun softDeleteTransaction(transactionId: String) = true
+            override suspend fun fetchFamilyByInviteCode(inviteCode: String) = null
+            override suspend fun fetchFamiliesForUser(userId: String) = if (userId == testUserId) listOf(remoteVault) else emptyList()
+        }
+
+        val freshRepo = FamilyLedgerRepository(
+            ledgerDao = ledgerDao,
+            legacyTransactionDao = db.transactionDao(),
+            legacyFamilyDao = db.familyDao(),
+            legacyMemberDao = db.familyMemberDao(),
+            cloudDataSource = fakeCloud
+        )
+
+        // 1. Initial State on New Phone: Room database is completely empty
+        assertTrue("Fresh device must have no family vaults", freshRepo.observeAllFamilyVaults().first().isEmpty())
+
+        // 2. Perform Cloud Restoration upon login on the new device
+        val restoredVaults = freshRepo.restoreAllFamiliesForUser(testUserId)
+        assertEquals(1, restoredVaults.size)
+        assertEquals("The Incredibles Vault", restoredVaults.first().familyName)
+
+        // 3. Verify Room database now has the restored family, members, and transactions
+        val localVaults = freshRepo.observeAllFamilyVaults().first()
+        assertEquals(1, localVaults.size)
+        assertEquals(testFamilyId, localVaults.first().familyId)
+
+        val localMembers = freshRepo.observeMembers(testFamilyId).first()
+        assertEquals(1, localMembers.size)
+        assertEquals("Bob Parr", localMembers.first().name)
+
+        val localTxs = freshRepo.observeTransactions(testFamilyId).first()
+        assertEquals(1, localTxs.size)
+        assertEquals("Super Suits Maintenance", localTxs.first().title)
+        assertEquals(4500.0, localTxs.first().amount, 0.001)
+
+        // 4. Calling getOrCreateDefaultVault recovers the restored vault rather than making a new one
+        val defaultVault = freshRepo.getOrCreateDefaultVault(testUserId, "Bob Parr")
+        assertEquals(testFamilyId, defaultVault.familyId)
+        assertEquals("The Incredibles Vault", defaultVault.familyName)
+    }
+
+    @Test
+    fun testSignOutClearsLocalUserData() = runBlocking {
+        val familyId = "fam_to_purge"
+        repository.createFamilyVault("Purge Vault", "user_1", "User One")
+        val vaultsBefore = repository.observeAllFamilyVaults().first()
+        assertTrue(vaultsBefore.isNotEmpty())
+
+        // Purge local family data on sign out
+        repository.clearAllLocalFamilyData()
+        val vaultsAfter = repository.observeAllFamilyVaults().first()
+        assertTrue("Vaults must be empty after sign out purge", vaultsAfter.isEmpty())
+    }
 }
