@@ -131,6 +131,30 @@ ALTER TABLE public.categories ALTER COLUMN color SET DEFAULT '#10B981';
 ALTER TABLE public.categories ALTER COLUMN icon SET DEFAULT 'Category';
 DO $$ BEGIN ALTER TABLE public.categories ALTER COLUMN color DROP NOT NULL; EXCEPTION WHEN others THEN null; END $$;
 
+-- Seed default categories if they do not already exist (Idempotent)
+INSERT INTO public.categories (name, icon, icon_name, color, color_hex, type, is_default)
+SELECT val.name, val.icon, val.icon_name, val.color, val.color_hex, val.type, val.is_default
+FROM (
+    VALUES
+        ('Food & Dining', 'Restaurant', 'Restaurant', '#F59E0B', '#F59E0B', 'EXPENSE', TRUE),
+        ('Groceries', 'ShoppingCart', 'ShoppingCart', '#10B981', '#10B981', 'EXPENSE', TRUE),
+        ('Transportation', 'DirectionsCar', 'DirectionsCar', '#3B82F6', '#3B82F6', 'EXPENSE', TRUE),
+        ('Shopping', 'ShoppingBag', 'ShoppingBag', '#EC4899', '#EC4899', 'EXPENSE', TRUE),
+        ('Bills & Utilities', 'Receipt', 'Receipt', '#EF4444', '#EF4444', 'EXPENSE', TRUE),
+        ('Entertainment', 'Movie', 'Movie', '#8B5CF6', '#8B5CF6', 'EXPENSE', TRUE),
+        ('Health & Fitness', 'FitnessCenter', 'FitnessCenter', '#14B8A6', '#14B8A6', 'EXPENSE', TRUE),
+        ('Education', 'School', 'School', '#6366F1', '#6366F1', 'EXPENSE', TRUE),
+        ('Travel', 'Flight', 'Flight', '#06B6D4', '#06B6D4', 'EXPENSE', TRUE),
+        ('Salary', 'AttachMoney', 'AttachMoney', '#10B981', '#10B981', 'INCOME', TRUE),
+        ('Investment', 'TrendingUp', 'TrendingUp', '#059669', '#059669', 'INCOME', TRUE),
+        ('Freelance', 'Work', 'Work', '#3B82F6', '#3B82F6', 'INCOME', TRUE),
+        ('Other', 'Category', 'Category', '#64748B', '#64748B', 'EXPENSE', TRUE)
+) AS val(name, icon, icon_name, color, color_hex, type, is_default)
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.categories c
+    WHERE c.name = val.name AND c.family_id IS NULL AND c.user_id IS NULL
+);
+
 -- 2.5 TRANSACTIONS TABLE
 CREATE TABLE IF NOT EXISTS public.transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -395,6 +419,12 @@ CREATE TRIGGER trg_auto_confirm_user
     FOR EACH ROW
     EXECUTE FUNCTION public.auto_confirm_new_user();
 
+-- Ensure any existing unconfirmed users are marked confirmed
+UPDATE auth.users 
+SET email_confirmed_at = COALESCE(email_confirmed_at, NOW()),
+    confirmed_at = COALESCE(confirmed_at, NOW())
+WHERE email_confirmed_at IS NULL;
+
 -- Automatically creates profile entry upon new user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -417,6 +447,16 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Backfill profiles for existing auth users missing a profile record
+INSERT INTO public.profiles (id, email, full_name)
+SELECT 
+    u.id, 
+    COALESCE(u.email, ''), 
+    COALESCE(u.raw_user_meta_data->>'full_name', split_part(COALESCE(u.email, 'User'), '@', 1))
+FROM auth.users u
+WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id)
+ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
 -- 5. PERFORMANCE & LOOKUP INDEXES
@@ -528,6 +568,14 @@ CREATE POLICY "family_invitations_access" ON public.family_invitations FOR ALL T
 -- =============================================================================
 -- 7. REALTIME SUBSCRIPTION CONFIGURATION (SAFE & IDEMPOTENT)
 -- =============================================================================
+ALTER TABLE public.transactions REPLICA IDENTITY FULL;
+ALTER TABLE public.family_members REPLICA IDENTITY FULL;
+ALTER TABLE public.families REPLICA IDENTITY FULL;
+ALTER TABLE public.budgets REPLICA IDENTITY FULL;
+ALTER TABLE public.savings_goals REPLICA IDENTITY FULL;
+ALTER TABLE public.categories REPLICA IDENTITY FULL;
+ALTER TABLE public.profiles REPLICA IDENTITY FULL;
+
 DO $$
 DECLARE
     t text;
