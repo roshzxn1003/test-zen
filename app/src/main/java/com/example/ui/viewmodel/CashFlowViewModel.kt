@@ -147,6 +147,62 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val userProfileRepository: com.example.data.repository.UserProfileRepository
     val authService: com.example.data.network.AuthService = com.example.data.network.SupabaseAuthService()
 
+    val currentMonthYear: String
+        get() {
+            val sdf = SimpleDateFormat("yyyy-MM", Locale.getDefault())
+            return sdf.format(Date())
+        }
+
+    private val prefs = application.getSharedPreferences("zenith_prefs", android.content.Context.MODE_PRIVATE)
+
+    private val _currentFinanceScope = MutableStateFlow(FinanceScope.PERSONAL)
+    val currentFinanceScope: StateFlow<FinanceScope> = _currentFinanceScope.asStateFlow()
+
+    private val _activeFamilyId = MutableStateFlow<String?>(prefs.getString("active_family_id", null))
+    val activeFamilyId: StateFlow<String?> = _activeFamilyId.asStateFlow()
+
+    private val _isAuthenticated = MutableStateFlow(prefs.getBoolean("is_authenticated", false))
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+
+    private val _activeUserEmail = MutableStateFlow(prefs.getString("user_email", null))
+    val activeUserEmail: StateFlow<String?> = _activeUserEmail.asStateFlow()
+
+    private val _activeUserName = MutableStateFlow(prefs.getString("user_name", null))
+    val activeUserName: StateFlow<String?> = _activeUserName.asStateFlow()
+
+    private val _isGuestMode = MutableStateFlow(prefs.getBoolean("is_guest_mode", false))
+    val isGuestMode: StateFlow<Boolean> = _isGuestMode.asStateFlow()
+
+    private val _defaultPaymentMethod = MutableStateFlow(prefs.getString("default_payment_method", "UPI") ?: "UPI")
+    val defaultPaymentMethod: StateFlow<String> = _defaultPaymentMethod.asStateFlow()
+
+    private val _isDarkMode = MutableStateFlow(prefs.getBoolean("is_dark_mode", true))
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _isHapticsEnabled = MutableStateFlow(prefs.getBoolean("is_haptics_enabled", true))
+    val isHapticsEnabled: StateFlow<Boolean> = _isHapticsEnabled.asStateFlow()
+
+    private val _isNotificationsEnabled = MutableStateFlow(prefs.getBoolean("is_notifications_enabled", true))
+    val isNotificationsEnabled: StateFlow<Boolean> = _isNotificationsEnabled.asStateFlow()
+
+    private val _isUpiAutoDetectionEnabled = MutableStateFlow<Boolean>(
+        UpiNotificationListenerService.isAutoDetectionEnabled(application)
+    )
+    val isUpiAutoDetectionEnabled: StateFlow<Boolean> = _isUpiAutoDetectionEnabled.asStateFlow()
+
+    private val _userSupabaseId = MutableStateFlow<String?>(prefs.getString("user_supabase_id", null))
+    val userSupabaseId: StateFlow<String?> = _userSupabaseId.asStateFlow()
+
+    private val _syncUiState = MutableStateFlow<SyncUiState>(SyncUiState.Idle)
+    val syncUiState: StateFlow<SyncUiState> = _syncUiState.asStateFlow()
+
+    val currentUserId: String
+        get() = authService.currentUser.value?.id
+            ?: _userSupabaseId.value
+            ?: "local_user_1"
+    val currentUserName: String
+        get() = _activeUserName.value ?: authService.currentUser.value?.email?.substringBefore("@") ?: "You"
+
     init {
         val database = CashFlowDatabase.getDatabase(application)
         repository = CashFlowRepository(
@@ -227,63 +283,6 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             }
         }
     }
-
-    val currentMonthYear: String
-        get() {
-            val sdf = SimpleDateFormat("yyyy-MM", Locale.getDefault())
-            return sdf.format(Date())
-        }
-
-
-    private val prefs = application.getSharedPreferences("zenith_prefs", android.content.Context.MODE_PRIVATE)
-
-    private val _currentFinanceScope = MutableStateFlow(FinanceScope.PERSONAL)
-    val currentFinanceScope: StateFlow<FinanceScope> = _currentFinanceScope.asStateFlow()
-
-    private val _activeFamilyId = MutableStateFlow<String?>(prefs.getString("active_family_id", null))
-    val activeFamilyId: StateFlow<String?> = _activeFamilyId.asStateFlow()
-
-    private val _isAuthenticated = MutableStateFlow(prefs.getBoolean("is_authenticated", false))
-    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
-
-    private val _activeUserEmail = MutableStateFlow(prefs.getString("user_email", null))
-    val activeUserEmail: StateFlow<String?> = _activeUserEmail.asStateFlow()
-
-    private val _activeUserName = MutableStateFlow(prefs.getString("user_name", null))
-    val activeUserName: StateFlow<String?> = _activeUserName.asStateFlow()
-
-    private val _isGuestMode = MutableStateFlow(prefs.getBoolean("is_guest_mode", false))
-    val isGuestMode: StateFlow<Boolean> = _isGuestMode.asStateFlow()
-
-    private val _defaultPaymentMethod = MutableStateFlow(prefs.getString("default_payment_method", "UPI") ?: "UPI")
-    val defaultPaymentMethod: StateFlow<String> = _defaultPaymentMethod.asStateFlow()
-
-    private val _isDarkMode = MutableStateFlow(prefs.getBoolean("is_dark_mode", true))
-    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
-
-    private val _isHapticsEnabled = MutableStateFlow(prefs.getBoolean("is_haptics_enabled", true))
-    val isHapticsEnabled: StateFlow<Boolean> = _isHapticsEnabled.asStateFlow()
-
-    private val _isNotificationsEnabled = MutableStateFlow(prefs.getBoolean("is_notifications_enabled", true))
-    val isNotificationsEnabled: StateFlow<Boolean> = _isNotificationsEnabled.asStateFlow()
-
-    private val _isUpiAutoDetectionEnabled = MutableStateFlow<Boolean>(
-        UpiNotificationListenerService.isAutoDetectionEnabled(application)
-    )
-    val isUpiAutoDetectionEnabled: StateFlow<Boolean> = _isUpiAutoDetectionEnabled.asStateFlow()
-
-    private val _userSupabaseId = MutableStateFlow<String?>(prefs.getString("user_supabase_id", null))
-    val userSupabaseId: StateFlow<String?> = _userSupabaseId.asStateFlow()
-
-    private val _syncUiState = MutableStateFlow<SyncUiState>(SyncUiState.Idle)
-    val syncUiState: StateFlow<SyncUiState> = _syncUiState.asStateFlow()
-
-    val currentUserId: String
-        get() = authService.currentUser.value?.id
-            ?: _userSupabaseId.value
-            ?: "local_user_1"
-    val currentUserName: String
-        get() = _activeUserName.value ?: authService.currentUser.value?.email?.substringBefore("@") ?: "You"
 
     fun setDefaultPaymentMethod(method: String) {
         _defaultPaymentMethod.value = method
