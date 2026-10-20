@@ -180,6 +180,76 @@ CREATE TABLE IF NOT EXISTS public.transactions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Defensive conversion of category_id across transactions & budgets (Fixes Error 22P02)
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- 1. Drop foreign key constraints on category_id in transactions and budgets
+    FOR r IN (
+        SELECT tc.table_schema, tc.table_name, tc.constraint_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_name IN ('transactions', 'budgets')
+          AND kcu.column_name = 'category_id'
+    ) LOOP
+        EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT IF EXISTS %I CASCADE', r.table_schema, r.table_name, r.constraint_name);
+    END LOOP;
+
+    -- Also drop from pg_constraint directly if named differently
+    FOR r IN (
+        SELECT conname, conrelid::regclass::text as tablename
+        FROM pg_constraint
+        WHERE conrelid IN ('public.transactions'::regclass, 'public.budgets'::regclass)
+          AND contype = 'f'
+          AND conname ILIKE '%category%'
+    ) LOOP
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I CASCADE', r.tablename, r.conname);
+    END LOOP;
+    
+    -- 2. Drop any legacy trigger on transactions
+    DROP TRIGGER IF EXISTS trg_sync_transaction_columns ON public.transactions;
+    
+    -- 3. Safely handle transactions.category_id conversion
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'category_id'
+    ) THEN
+        BEGIN
+            ALTER TABLE public.transactions ALTER COLUMN category_id DROP DEFAULT;
+            ALTER TABLE public.transactions ALTER COLUMN category_id DROP NOT NULL;
+            ALTER TABLE public.transactions ALTER COLUMN category_id TYPE TEXT USING category_id::text;
+            ALTER TABLE public.transactions ALTER COLUMN category_id SET DEFAULT 'Other';
+        EXCEPTION WHEN OTHERS THEN
+            ALTER TABLE public.transactions DROP COLUMN IF EXISTS category_id CASCADE;
+            ALTER TABLE public.transactions ADD COLUMN category_id TEXT DEFAULT 'Other';
+        END;
+    ELSE
+        ALTER TABLE public.transactions ADD COLUMN category_id TEXT DEFAULT 'Other';
+    END IF;
+
+    -- 4. Safely handle budgets.category_id conversion
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'budgets' AND column_name = 'category_id'
+    ) THEN
+        BEGIN
+            ALTER TABLE public.budgets ALTER COLUMN category_id DROP DEFAULT;
+            ALTER TABLE public.budgets ALTER COLUMN category_id DROP NOT NULL;
+            ALTER TABLE public.budgets ALTER COLUMN category_id TYPE TEXT USING category_id::text;
+            ALTER TABLE public.budgets ALTER COLUMN category_id SET DEFAULT 'Other';
+        EXCEPTION WHEN OTHERS THEN
+            ALTER TABLE public.budgets DROP COLUMN IF EXISTS category_id CASCADE;
+            ALTER TABLE public.budgets ADD COLUMN category_id TEXT DEFAULT 'Other';
+        END;
+    ELSE
+        ALTER TABLE public.budgets ADD COLUMN category_id TEXT DEFAULT 'Other';
+    END IF;
+END $$;
+
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS finance_scope VARCHAR(32) NOT NULL DEFAULT 'PERSONAL';
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS family_id UUID REFERENCES public.families(id) ON DELETE CASCADE;
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
@@ -191,7 +261,6 @@ ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS amount NUMERIC(15, 2) D
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS type VARCHAR(32) DEFAULT 'EXPENSE';
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS transaction_type VARCHAR(32) DEFAULT 'EXPENSE';
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Other';
-ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS category_id TEXT DEFAULT 'Other';
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'UPI';
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS upi_id TEXT;
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS upi_transaction_id TEXT;
@@ -201,9 +270,6 @@ ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT 
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
--- Safely convert category_id to TEXT if previously created as UUID
-DO $$ BEGIN ALTER TABLE public.transactions ALTER COLUMN category_id TYPE TEXT USING category_id::text; EXCEPTION WHEN others THEN null; END $$;
-ALTER TABLE public.transactions ALTER COLUMN category_id SET DEFAULT 'Other';
 ALTER TABLE public.transactions ALTER COLUMN category SET DEFAULT 'Other';
 ALTER TABLE public.transactions ALTER COLUMN title SET DEFAULT 'Transaction';
 ALTER TABLE public.transactions ALTER COLUMN description SET DEFAULT '';
@@ -233,7 +299,6 @@ ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS family_id UUID REFERENCES pu
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS name TEXT DEFAULT 'Budget';
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS category_name TEXT DEFAULT 'Other';
-ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS category_id TEXT DEFAULT 'Other';
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS monthly_limit NUMERIC(15, 2) DEFAULT 0.00;
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS amount NUMERIC(15, 2) DEFAULT 0.00;
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS month_year VARCHAR(7) DEFAULT to_char(NOW(), 'YYYY-MM');
@@ -244,9 +309,6 @@ ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL 
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
--- Safely convert category_id in budgets to TEXT if previously created as UUID
-DO $$ BEGIN ALTER TABLE public.budgets ALTER COLUMN category_id TYPE TEXT USING category_id::text; EXCEPTION WHEN others THEN null; END $$;
-ALTER TABLE public.budgets ALTER COLUMN category_id SET DEFAULT 'Other';
 ALTER TABLE public.budgets ALTER COLUMN category_name SET DEFAULT 'Other';
 
 -- 2.7 SAVINGS GOALS & CONTRIBUTIONS
